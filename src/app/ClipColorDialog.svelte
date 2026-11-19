@@ -61,7 +61,7 @@
   }
   .swatches button:hover,
   .swatches button.on {
-    border-color: #fff;
+    border-color: var(--text-strong);
   }
   .custom {
     display: flex;

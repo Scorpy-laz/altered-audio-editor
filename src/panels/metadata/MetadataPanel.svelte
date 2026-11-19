@@ -366,7 +366,7 @@
   }
   .files button.on {
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .name,
   .sub {
@@ -413,7 +413,7 @@
   }
   .issue {
     margin: 0;
-    color: var(--danger, #e5534b);
+    color: var(--danger);
   }
   .cover {
     display: flex;
@@ -449,7 +449,7 @@
   .primary {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .primary:disabled {
     opacity: 0.5;

@@ -62,7 +62,7 @@
     z-index: 5500;
     display: grid;
     place-items: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--backdrop);
   }
 
   .dialog {
@@ -74,7 +74,7 @@
     padding: 16px;
     border: 1px solid var(--border-strong);
     background: var(--surface-2);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 40px var(--shadow);
   }
 
   h1 {
@@ -116,6 +116,6 @@
   button.primary {
     border-color: var(--accent-dim);
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
 </style>

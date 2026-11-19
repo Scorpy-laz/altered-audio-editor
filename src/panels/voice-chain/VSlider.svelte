@@ -129,7 +129,7 @@
     width: 10px;
     border: 1px solid var(--border-strong);
     border-radius: 5px;
-    background: rgba(0, 0, 0, 0.45);
+    background: var(--well-deep);
     cursor: ns-resize;
     touch-action: none;
   }

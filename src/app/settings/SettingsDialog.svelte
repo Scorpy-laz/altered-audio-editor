@@ -482,7 +482,7 @@
     z-index: 5000;
     display: grid;
     place-items: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--backdrop);
   }
   .dialog {
     display: grid;
@@ -491,7 +491,7 @@
     height: min(560px, 92vh);
     border: 1px solid var(--border-strong);
     background: var(--surface-2);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 40px var(--shadow);
     font-size: 12px;
   }
   header {
@@ -667,7 +667,7 @@
   .primary {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .outmap {
     display: grid;

@@ -22,6 +22,7 @@
 -->
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import { cssVar } from "../../app/theme";
   import { scopePhase, scopePhaseAt, type ScopeSignal } from "../../app/core";
   import ColorPairPopover from "../../app/ColorPairPopover.svelte";
   import { hexToRgb, PHASE_HIGH, PHASE_LOW, ramp } from "../../app/colors";
@@ -178,7 +179,7 @@
   });
 
   function css(name: string, fallback: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+    return cssVar(name, fallback);
   }
 
   /** `fade` dims the last picture by that much (1 clears it), so dots leave a trail while playing. */

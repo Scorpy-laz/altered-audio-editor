@@ -14,6 +14,7 @@
 -->
 <script lang="ts">
   import { wavePitch, waveSpectrogram } from "../../app/core";
+  import { cssVar, themeTick } from "../../app/theme";
   import type { SpectralTool } from "../../stores/editor";
   import type { SessionDoc } from "../../stores/session";
   import { spectralSelection } from "../../stores/wave";
@@ -138,8 +139,9 @@
   const yOfFrac = (f: number) => yOf(freqAt(f, nyquist));
   const fracAtY = (y: number) => fracOf(viewFreq(1 - y / height, sv, nyquist), nyquist);
 
+  /** A theme color, cached until the surface or a color setting changes. */
   function css(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+    return cssVar(name, "#888");
   }
 
   /** The scale's marks: frequencies in Hz, or note names at their pitches. */
@@ -264,6 +266,7 @@
   }
 
   $effect(() => {
+    void $themeTick;
     const c = canvas;
     if (!c) return;
     const w = width + scaleWidth;

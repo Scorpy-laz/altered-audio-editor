@@ -620,7 +620,7 @@
 
   .row[aria-selected="true"] {
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .row.dim {

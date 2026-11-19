@@ -7369,7 +7369,7 @@
     border: 1px solid var(--danger);
     border-radius: 4px;
     background: var(--surface-2);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 12px 30px var(--shadow);
     color: var(--text);
     font-size: 28px;
     font-weight: 600;

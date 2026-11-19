@@ -341,7 +341,7 @@
     opacity: 0.8;
   }
   .err {
-    color: var(--error, #e5484d);
+    color: var(--danger);
     opacity: 1;
   }
   .hw {

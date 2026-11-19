@@ -293,7 +293,7 @@
 
   .pt.sel {
     fill: var(--c);
-    stroke: var(--text, #fff);
+    stroke: var(--text);
     stroke-width: 2;
   }
 

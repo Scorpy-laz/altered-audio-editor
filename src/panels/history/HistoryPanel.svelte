@@ -163,7 +163,7 @@
 
   .row.current {
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .row.undone {

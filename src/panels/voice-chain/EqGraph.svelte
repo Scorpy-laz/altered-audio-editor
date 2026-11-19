@@ -280,7 +280,7 @@
     display: block;
   }
   .bg {
-    fill: #0b0b0e;
+    fill: var(--graph-bg);
     stroke: var(--border);
   }
   .spectrum {
@@ -289,13 +289,13 @@
     stroke-width: 0.8;
   }
   .grid {
-    stroke: rgba(255, 255, 255, 0.06);
+    stroke: var(--grid-line);
   }
   .grid.major {
-    stroke: rgba(255, 255, 255, 0.12);
+    stroke: var(--graph-grid-major);
   }
   .grid.zero {
-    stroke: rgba(255, 255, 255, 0.25);
+    stroke: var(--graph-axis);
   }
   .lab {
     fill: var(--text-faint);
@@ -303,20 +303,20 @@
   }
   .curve {
     fill: none;
-    stroke: #7d8cff;
+    stroke: var(--graph-curve);
     stroke-width: 2;
   }
   .span {
-    stroke: rgba(255, 255, 255, 0.25);
+    stroke: var(--graph-axis);
     stroke-dasharray: 2 2;
     pointer-events: none;
   }
   .width {
-    fill: rgba(255, 255, 255, 0.55);
+    fill: var(--graph-text);
     cursor: ew-resize;
   }
   .width.on {
-    fill: #ffffff;
+    fill: var(--graph-label);
   }
   .node {
     cursor: move;
@@ -330,14 +330,14 @@
     stroke-width: 1;
   }
   .node.on rect {
-    fill: #7d8cff;
+    fill: var(--graph-curve);
   }
   .node.off rect {
     fill: transparent;
-    stroke: rgba(255, 255, 255, 0.6);
+    stroke: var(--graph-text);
   }
   .node text {
-    fill: #ffffff;
+    fill: var(--graph-label);
     font-size: 10px;
     font-weight: 600;
     pointer-events: none;

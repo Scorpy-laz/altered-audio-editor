@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import { cssVar, themeTick } from "../../app/theme";
   import ContextMenu, { type ContextItem } from "../../app/ContextMenu.svelte";
   import PromptDialog from "../../app/PromptDialog.svelte";
   import ClipColorDialog from "../../app/ClipColorDialog.svelte";
@@ -560,7 +561,7 @@
       // A failed waveform says why on hover instead of staying blank.
       canvas.title = e.status === "error" ? `No waveform: ${e.error ?? "unknown error"}` : "";
       if (e.status === "error") {
-        g.fillStyle = getComputedStyle(canvas).getPropertyValue("--danger") || "#d55";
+        g.fillStyle = cssVar("--danger", "#d55");
         g.fillRect(0, h / 2 - 1, w, 2);
         return;
       }
@@ -582,7 +583,8 @@
       }
     };
     const off = peaks?.subscribe(draw);
-    draw();
+    // Redrawn in the new colors when the panel brightness changes.
+    const offTheme = themeTick.subscribe(draw);
     return {
       update(p: string) {
         current = p;
@@ -590,6 +592,7 @@
       },
       destroy() {
         off?.();
+        offTheme();
       },
     };
   }
@@ -1320,7 +1323,7 @@
   .play:hover,
   .play.on {
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .text {
@@ -1738,7 +1741,7 @@
     place-items: center;
     padding: 8px;
     border: 2px dashed var(--accent);
-    background: rgba(63, 169, 245, 0.12);
+    background: var(--accent-wash);
     color: var(--text);
     font-weight: 600;
     text-align: center;

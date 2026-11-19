@@ -120,7 +120,7 @@
     padding: 4px 3px 6px;
     border: 1px solid var(--border);
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.18);
+    background: var(--shade);
   }
   .band.off .cell {
     opacity: 0.45;
@@ -148,7 +148,7 @@
     padding: 0;
     border: 1px solid var(--border-strong);
     border-radius: 50%;
-    background: var(--surface-3, #333);
+    background: var(--surface-3);
     cursor: pointer;
   }
   .power.on {

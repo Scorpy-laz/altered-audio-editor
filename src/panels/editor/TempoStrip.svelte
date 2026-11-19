@@ -219,7 +219,7 @@
     border: 1px solid var(--border-strong);
     border-radius: 4px;
     background: var(--surface-2);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 4px 14px var(--shadow-soft);
     font-size: 11px;
     white-space: nowrap;
   }

@@ -220,7 +220,7 @@
   }
   .ms.on {
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
   .ms svg {
     width: 12px;
@@ -289,7 +289,7 @@
     border: 1px solid var(--border-strong);
     border-radius: 4px;
     background: var(--surface-2);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 6px 20px var(--shadow-soft);
     font-size: var(--font-size-small);
   }
   .pop-title {

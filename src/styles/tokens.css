@@ -78,13 +78,16 @@
   /* A recessed area, a dark field, and a light wash over a hovered or picked item. */
   --shade: rgba(0, 0, 0, 0.18);
   --well: rgba(0, 0, 0, 0.35);
+  --well-deep: rgba(0, 0, 0, 0.45);
   --overlay: rgba(255, 255, 255, 0.08);
   /* A time selection drawn over waveforms and rulers. */
   --sel-wash: rgba(255, 255, 255, 0.16);
-  /* Past the end of a file in the Waveform editor. */
+  /* Past the end of a file in the Waveform editor, and a veil over something switched off. */
   --past-end: rgba(0, 0, 0, 0.35);
+  --veil: rgba(0, 0, 0, 0.55);
   /* Frames drawn over content: the visible range in the overview, the zoom box. */
   --frame: #b4b4bc;
+  --frame-halo: rgba(0, 0, 0, 0.6);
   --overview-bg: #08080b;
   /* Waveform editor background (the waveform color is --wave, else --clip-1). */
   --wave-bg: var(--surface-0);
@@ -97,6 +100,11 @@
   --graph-curve-warm: #d8964f;
   --graph-curve-hot: #f0a040;
   --graph-text: rgba(255, 255, 255, 0.55);
+  --graph-grid: rgba(255, 255, 255, 0.08);
+  --graph-grid-major: rgba(255, 255, 255, 0.12);
+  --graph-axis: rgba(255, 255, 255, 0.28);
+  --graph-label: #ffffff;
+  --graph-print: rgba(235, 235, 240, 0.85);
 
   /* Clips on the lanes. The body is the clip color at --clip-body-alpha;
      the waveform is the clip color mixed toward --wave-tone. */
@@ -113,6 +121,15 @@
   --clip-select-line: #ffffff;
   --clip-note: rgba(255, 255, 255, 0.6);
   --loop-line: rgba(255, 255, 255, 0.55);
+  /* Emphasized text, such as the selected track's name. */
+  --text-strong: #fff;
+  /* A time range over the lanes, the box drawn to select clips, and the lanes' scroll thumb. */
+  --range-wash: rgba(255, 255, 255, 0.1);
+  --range-edge: rgba(255, 255, 255, 0.45);
+  --marquee: rgba(255, 255, 255, 0.85);
+  --marquee-wash: rgba(255, 255, 255, 0.05);
+  --thumb-wash: rgba(255, 255, 255, 0.1);
+  --grip: #d0d0d6;
   /* Envelope lines: volume, pan and effect settings. */
   --env-volume: #ffd75e;
   --env-pan: #78ebff;
@@ -204,10 +221,13 @@
   --shadow-soft: rgba(20, 20, 30, 0.2);
   --shade: rgba(0, 0, 0, 0.05);
   --well: #ffffff;
+  --well-deep: #ffffff;
   --overlay: rgba(0, 0, 0, 0.05);
   --sel-wash: rgba(26, 111, 201, 0.18);
   --past-end: rgba(0, 0, 0, 0.08);
+  --veil: rgba(243, 243, 245, 0.7);
   --frame: #3c3c46;
+  --frame-halo: rgba(255, 255, 255, 0.8);
   --overview-bg: #d6d6dc;
   --wave-bg: #f8f8fa;
   --wave: #23855a;
@@ -219,6 +239,11 @@
   --graph-curve-warm: #b35f12;
   --graph-curve-hot: #c56a00;
   --graph-text: rgba(0, 0, 0, 0.62);
+  --graph-grid: rgba(0, 0, 0, 0.08);
+  --graph-grid-major: rgba(0, 0, 0, 0.14);
+  --graph-axis: rgba(0, 0, 0, 0.35);
+  --graph-label: #1d1d22;
+  --graph-print: rgba(40, 40, 52, 0.8);
 
   --clip-text: #1d1d22;
   --clip-body-alpha: 0.26;
@@ -233,6 +258,13 @@
   --clip-select-line: #14141a;
   --clip-note: rgba(0, 0, 0, 0.6);
   --loop-line: rgba(0, 0, 0, 0.45);
+  --text-strong: #000;
+  --range-wash: rgba(26, 111, 201, 0.14);
+  --range-edge: rgba(26, 111, 201, 0.75);
+  --marquee: rgba(0, 0, 0, 0.7);
+  --marquee-wash: rgba(0, 0, 0, 0.04);
+  --thumb-wash: rgba(0, 0, 0, 0.08);
+  --grip: #6a6a74;
   --env-volume: #a86c00;
   --env-pan: #00809e;
   --env-fx: #7b3fc4;

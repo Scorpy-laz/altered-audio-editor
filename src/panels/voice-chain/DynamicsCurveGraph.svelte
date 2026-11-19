@@ -162,14 +162,14 @@
     cursor: crosshair;
   }
   .bg {
-    fill: #0b0b0e;
+    fill: var(--graph-bg);
     stroke: var(--border);
   }
   .grid {
-    stroke: rgba(255, 255, 255, 0.08);
+    stroke: var(--graph-grid);
   }
   .diag {
-    stroke: rgba(255, 255, 255, 0.28);
+    stroke: var(--graph-axis);
     stroke-dasharray: 4 4;
   }
   .lab {
@@ -178,7 +178,7 @@
   }
   .curve {
     fill: none;
-    stroke: #d8964f;
+    stroke: var(--graph-curve-warm);
     stroke-width: 2;
     pointer-events: none;
   }
@@ -193,7 +193,7 @@
     stroke: #0e0e10;
   }
   .pt.on rect {
-    fill: #d8964f;
+    fill: var(--graph-curve-warm);
   }
   .tip {
     position: absolute;
