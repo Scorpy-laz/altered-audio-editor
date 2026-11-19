@@ -3839,6 +3839,8 @@
   function applyAppSettings(s: AppSettings, autosave: boolean) {
     if (!s.playbackSpeed && speedNow !== 100) void chooseSpeed(100).catch(() => {});
     document.documentElement.dataset.surface = s.surface;
+    // The native title bar and window frame follow the panels.
+    if (isTauri()) void getCurrentWindow().setTheme(s.surface === "light" ? "light" : "dark").catch(() => {});
     const root = document.documentElement.style;
     for (const k of ["--wave", "--playhead", "--accent", "--lane-selected"]) root.removeProperty(k);
     for (const [k, v] of Object.entries(colorVars(s.colors))) root.setProperty(k, v);

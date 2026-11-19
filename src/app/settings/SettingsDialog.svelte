@@ -110,16 +110,18 @@
     }
   }
 
-  const COLOR_ROWS: { key: keyof AppColors; label: string; theme: string }[] = [
-    { key: "wave", label: "Waveform (Waveform editor)", theme: "#53c28b" },
-    { key: "playhead", label: "Playhead", theme: "#f2c14e" },
-    { key: "accent", label: "Accent (focus and selection)", theme: "#3fa9f5" },
-    { key: "laneSelected", label: "Selected track lane", theme: "#34343b" },
+  // The built-in colors of each surface, shown in the picker while a row is on Theme.
+  const isLight = $derived(d.app.surface === "light");
+  const COLOR_ROWS: { key: keyof AppColors; label: string; theme: string }[] = $derived([
+    { key: "wave", label: "Waveform (Waveform editor)", theme: isLight ? "#23855a" : "#53c28b" },
+    { key: "playhead", label: "Playhead", theme: isLight ? "#d4570b" : "#f2c14e" },
+    { key: "accent", label: "Accent (focus and selection)", theme: isLight ? "#1a6fc9" : "#3fa9f5" },
+    { key: "laneSelected", label: "Selected track lane", theme: isLight ? "#d3dcea" : d.app.surface === "classic" ? "#34343b" : "#3d3d46" },
     { key: "spectrumLow", label: "Spectrogram, quiet", theme: "#2a1a8a" },
     { key: "spectrumHigh", label: "Spectrogram, loud", theme: "#ffe066" },
     { key: "phaseLow", label: "Phase Wheel, low notes", theme: "#ff2a2a" },
     { key: "phaseHigh", label: "Phase Wheel, high notes", theme: "#e02aff" },
-  ];
+  ]);
   const CACHE_NOTES: Record<string, string> = {
     peaks: "Waveform drawings",
     spectral: "Spectrum edit results",
@@ -192,7 +194,7 @@
           </fieldset>
           <p class="note">The Space bar plays, and stops when playing or recording.</p>
         {:else if page === "Appearance"}
-          <p class="note">Leave a color on Theme to keep the built-in one. Changes show the next time each view redraws.</p>
+          <p class="note">Leave a color on Theme to keep the built-in one for the panel brightness you pick.</p>
           <div class="colors">
             {#each COLOR_ROWS as r (r.key)}
               <span>{r.label}</span>
@@ -200,7 +202,7 @@
               <button type="button" disabled={!d.app.colors[r.key]} onclick={() => (d.app.colors[r.key] = "")}>Theme</button>
             {/each}
           </div>
-          <label><select bind:value={d.app.surface}><option value="standard">Standard</option><option value="classic">Classic (darker)</option></select> Panel brightness <span class="why">Standard is closer to Audition's charcoal. Classic is the darker look of earlier versions.</span></label>
+          <label><select bind:value={d.app.surface}><option value="light">Light</option><option value="standard">Standard (dark)</option><option value="classic">Classic (darker)</option></select> Panel brightness <span class="why">Light has pale grey panels and dark text. Standard is a charcoal dark look. Classic is the darker look of earlier versions.</span></label>
         {:else if page === "Audio Devices"}
           <label class="row">
             Play through

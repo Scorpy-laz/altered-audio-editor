@@ -49,6 +49,16 @@ describe("app settings", () => {
     settings.set(DEFAULT_SETTINGS);
   });
 
+  it("starts on the Light surface and keeps Standard and Classic", () => {
+    expect(DEFAULT_SETTINGS.surface).toBe("light");
+    expect(sanitizeSettings({}).surface).toBe("light");
+    expect(sanitizeSettings({ surface: "standard" }).surface).toBe("standard");
+    expect(sanitizeSettings({ surface: "classic" }).surface).toBe("classic");
+    expect(sanitizeSettings({ surface: "light" }).surface).toBe("light");
+    expect(sanitizeSettings({ surface: "neon" }).surface).toBe("light");
+    expect(sanitizeSettings({ surface: 3 }).surface).toBe("light");
+  });
+
   it("keeps playback speed off until it is turned on", () => {
     expect(DEFAULT_SETTINGS.playbackSpeed).toBe(false);
     expect(sanitizeSettings({ playbackSpeed: true }).playbackSpeed).toBe(true);

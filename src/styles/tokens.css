@@ -3,14 +3,17 @@
   Copyright (c) The GeekCast Radio Network, LLC.
   This file is part of Altered Audio Editor.
 
-  Design tokens. Dark UI for long sessions: dense, quiet chrome.
-  The clips and waveforms carry the color, not the panels.
+  Design tokens. Dense, quiet chrome for long sessions: the clips and
+  waveforms carry the color, not the panels. Three surfaces: Standard
+  (dark, the :root values), Classic (darker) and Light. Every color the
+  interface draws, canvases included, comes from a token here, so a
+  surface only has to set its own values.
 */
 
 :root {
   color-scheme: dark;
 
-  /* A slight rounding on menus, dialogs and fields, as Audition has. */
+  /* A slight rounding on menus, dialogs and fields. */
   --radius-sm: 3px;
   --radius: 5px;
   --radius-lg: 7px;
@@ -60,6 +63,61 @@
   --clip-6: #b84f6e;
   --clip-7: #3fa3b8;
 
+  /* Text on an accent or accent-dim fill, and status colors. */
+  --on-accent: #fff;
+  --ok: #5fbf8f;
+  --live: #5fd38d;
+  --warning: #e0a030;
+  --selection: rgba(63, 169, 245, 0.18);
+  --accent-wash: rgba(63, 169, 245, 0.12);
+
+  /* Dialog backdrops and drop shadows. */
+  --backdrop: rgba(0, 0, 0, 0.5);
+  --shadow: rgba(0, 0, 0, 0.6);
+  --shadow-soft: rgba(0, 0, 0, 0.45);
+  /* A recessed area, a dark field, and a light wash over a hovered or picked item. */
+  --shade: rgba(0, 0, 0, 0.18);
+  --well: rgba(0, 0, 0, 0.35);
+  --overlay: rgba(255, 255, 255, 0.08);
+  /* A time selection drawn over waveforms and rulers. */
+  --sel-wash: rgba(255, 255, 255, 0.16);
+  /* Past the end of a file in the Waveform editor. */
+  --past-end: rgba(0, 0, 0, 0.35);
+  /* Frames drawn over content: the visible range in the overview, the zoom box. */
+  --frame: #b4b4bc;
+  --overview-bg: #08080b;
+  /* Waveform editor background (the waveform color is --wave, else --clip-1). */
+  --wave-bg: var(--surface-0);
+
+  /* Graphs in effect windows: background, grid, curves and labels. */
+  --graph-bg: #0b0b0e;
+  --grid-line: rgba(255, 255, 255, 0.06);
+  --grid-line-strong: rgba(255, 255, 255, 0.18);
+  --graph-curve: #7d8cff;
+  --graph-curve-warm: #d8964f;
+  --graph-curve-hot: #f0a040;
+  --graph-text: rgba(255, 255, 255, 0.55);
+
+  /* Clips on the lanes. The body is the clip color at --clip-body-alpha;
+     the waveform is the clip color mixed toward --wave-tone. */
+  --clip-text: #eef0f4;
+  --clip-body-alpha: 0.2;
+  --wave-tone: #ffffff;
+  --wave-tone-amount: 0.55;
+  --fade-shade: rgba(0, 0, 0, 0.2);
+  --fade-line: rgba(255, 255, 255, 0.7);
+  --clip-edge-hi: rgba(255, 255, 255, 0.28);
+  --clip-edge-lo: rgba(0, 0, 0, 0.55);
+  --clip-select-wash: rgba(255, 255, 255, 0.14);
+  --clip-select-halo: rgba(0, 0, 0, 0.7);
+  --clip-select-line: #ffffff;
+  --clip-note: rgba(255, 255, 255, 0.6);
+  --loop-line: rgba(255, 255, 255, 0.55);
+  /* Envelope lines: volume, pan and effect settings. */
+  --env-volume: #ffd75e;
+  --env-pan: #78ebff;
+  --env-fx: #cd96ff;
+
   /* Type and density */
   --font-ui:
     "Source Sans 3", "Segoe UI", system-ui, -apple-system, "Noto Sans",
@@ -90,6 +148,94 @@
   --header-b: #2b2b31;
   --text: #d6d6da;
   --text-dim: #9a9aa2;
+}
+
+/* Light: neutral greys, dark text, deeper accents. Raised things
+   (dialogs, menus, rulers) are lighter, controls a step darker, and the
+   dialog title bars dark so a pop-up stands out from the editor. */
+:root[data-surface="light"] {
+  color-scheme: light;
+
+  --surface-0: #e4e4e9;
+  --surface-1: #f3f3f5;
+  --surface-2: #fbfbfc;
+  --surface-3: #d9d9df;
+  --border: #c6c6cd;
+  --border-strong: #a6a6b0;
+
+  --text: #1d1d22;
+  --text-dim: #4f4f58;
+  --text-faint: #6e6e78;
+
+  --accent: #1a6fc9;
+  --accent-dim: #2f6fbf;
+  --playhead: #d4570b;
+  --value: #0b5cad;
+  --gutter: #c4c4cb;
+  --danger: #c0392b;
+  --title-bar: #4a4a55;
+  --title-bar-text: #f4f4f6;
+
+  --lane-a: #ededf1;
+  --lane-b: #e5e5ea;
+  --lane-selected: #d3dcea;
+  --track-gap: #b4b4bd;
+  --header-a: #e0e0e5;
+  --header-b: #d8d8de;
+
+  /* Deeper than on dark, so clip bodies tint the lane and the waveforms read clearly. */
+  --clip-1: #2f9467;
+  --clip-2: #3a6fc4;
+  --clip-3: #8550c4;
+  --clip-4: #c8642e;
+  --clip-5: #b08f12;
+  --clip-6: #c4436a;
+  --clip-7: #2a97b0;
+
+  --on-accent: #fff;
+  --ok: #1e8a50;
+  --live: #1a8f4c;
+  --warning: #a86a00;
+  --selection: rgba(26, 111, 201, 0.16);
+  --accent-wash: rgba(26, 111, 201, 0.1);
+
+  --backdrop: rgba(30, 30, 40, 0.3);
+  --shadow: rgba(20, 20, 30, 0.3);
+  --shadow-soft: rgba(20, 20, 30, 0.2);
+  --shade: rgba(0, 0, 0, 0.05);
+  --well: #ffffff;
+  --overlay: rgba(0, 0, 0, 0.05);
+  --sel-wash: rgba(26, 111, 201, 0.18);
+  --past-end: rgba(0, 0, 0, 0.08);
+  --frame: #3c3c46;
+  --overview-bg: #d6d6dc;
+  --wave-bg: #f8f8fa;
+  --wave: #23855a;
+
+  --graph-bg: #ffffff;
+  --grid-line: rgba(0, 0, 0, 0.08);
+  --grid-line-strong: rgba(0, 0, 0, 0.22);
+  --graph-curve: #3346c8;
+  --graph-curve-warm: #b35f12;
+  --graph-curve-hot: #c56a00;
+  --graph-text: rgba(0, 0, 0, 0.62);
+
+  --clip-text: #1d1d22;
+  --clip-body-alpha: 0.26;
+  --wave-tone: #000000;
+  --wave-tone-amount: 0.3;
+  --fade-shade: rgba(0, 0, 0, 0.12);
+  --fade-line: rgba(0, 0, 0, 0.6);
+  --clip-edge-hi: rgba(255, 255, 255, 0.75);
+  --clip-edge-lo: rgba(0, 0, 0, 0.25);
+  --clip-select-wash: rgba(26, 111, 201, 0.12);
+  --clip-select-halo: rgba(255, 255, 255, 0.9);
+  --clip-select-line: #14141a;
+  --clip-note: rgba(0, 0, 0, 0.6);
+  --loop-line: rgba(0, 0, 0, 0.45);
+  --env-volume: #a86c00;
+  --env-pan: #00809e;
+  --env-fx: #7b3fc4;
 }
 
 *,
@@ -124,7 +270,7 @@ body {
   user-select: none;
 }
 
-/* Dropdown lists: readable on the dark surfaces, including a disabled "(No saved presets yet)" row. */
+/* Dropdown lists: readable on every surface, including a disabled "(No saved presets yet)" row. */
 select {
   color: var(--text);
 }
@@ -138,7 +284,7 @@ select option:disabled {
 }
 select option:checked {
   background-color: var(--accent);
-  color: var(--on-accent, #fff);
+  color: var(--on-accent);
 }
 
 /* Rounded dialogs and fields. */
