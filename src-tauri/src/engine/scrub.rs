@@ -383,7 +383,7 @@ pub fn produce(
     if scratch.iter().any(|x| x.1 > 0.0) {
         reader.grab(tiles, lo, hi);
     }
-    for (f, &(pos, g)) in out.chunks_exact_mut(2).zip(scratch.iter()) {
+    for (f, &(pos, g)) in out.as_chunks_mut::<2>().0.iter_mut().zip(scratch.iter()) {
         if g == 0.0 {
             f[0] = 0.0;
             f[1] = 0.0;
@@ -629,7 +629,10 @@ fn feed(
         shared.head.store(chase.pos().to_bits(), Ordering::Relaxed);
         shared.rate.store(chase.rate().to_bits(), Ordering::Relaxed);
         frames.fill(0.0);
-        for (f, s) in frames.chunks_exact_mut(channels).zip(block.chunks_exact(2)) {
+        for (f, s) in frames
+            .chunks_exact_mut(channels)
+            .zip(block.as_chunks::<2>().0.iter())
+        {
             let [ol, or] = stereo;
             if channels == 1 || ol == or {
                 if let Some(x) = f.get_mut(if channels == 1 { 0 } else { ol }) {
