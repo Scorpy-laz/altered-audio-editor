@@ -23,6 +23,7 @@ pub mod interchange;
 pub mod keymap;
 pub mod library;
 pub mod links;
+pub mod mcp;
 pub mod media;
 pub mod mix;
 pub mod musicfit;

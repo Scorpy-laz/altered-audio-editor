@@ -68,6 +68,7 @@ describe("menu model", () => {
       "window.minimize",
       "edit.keyboard-shortcuts",
       "edit.settings",
+      "edit.assistant-activity",
       "multitrack.speaker-balance",
       "multitrack.duck-music",
       "multitrack.mic-mix",

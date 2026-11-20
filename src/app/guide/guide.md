@@ -37,6 +37,7 @@ There is no account, no sign-in, no tracking and no telemetry.
 
 - Your audio and sessions stay on your computer. The program goes online only when you choose Help > Check for Updates or open a link from the Help menu.
 - There is also a weekly update check that is off until you turn it on in Settings.
+- The assistant connection (below) is off until you turn it on, and only programs on this computer can use it.
 
 ## Recording
 
@@ -159,6 +160,18 @@ A process chain is a small text file that lists steps to run on a session in ord
 - A step that fails takes back what already ran, unless the chain marks it to be skipped.
 
 The steps are Auto Mic Mix, Close Dead Space, Loudness Target (sets the Master so the mix reaches a target, and stops short rather than push peaks past its limit), Voice Chain Preset (gives a track or every track a preset by name) and QuickPass (runs a preset that removes or turns down what it finds). Example chains are in the docs/chains folder that comes with the program.
+
+## AI assistants
+
+Settings > Assistant lets an AI assistant on this computer (Claude Desktop, Claude Code, Codex) work with the editor: read the session, add and tune Voice Chain effects, set levels, place markers, check loudness and export.
+
+- It is off until you tick Allow assistants to connect. It listens on this computer only, and every request needs the token on that page.
+- With Allow changes off, the assistant can only read. With it on, every change it makes is one step in History named "Assistant: ...", so Ctrl+Z takes it back.
+- The Copy buttons give the settings to paste into the assistant app. They start this program as a small bridge, so the token never goes into the other app.
+- Edit > Assistant Activity lists every request. The status bar shows "Assistant on" while the connection is on.
+- The assistant app may send what it reads (track and file names, levels) to its own online service. The editor itself sends nothing.
+
+The full set-up for each app, including ChatGPT, is in docs/mcp.md.
 
 ## Music, stretching and fitting
 

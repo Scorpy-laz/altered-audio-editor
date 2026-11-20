@@ -19,7 +19,7 @@ There is no date for 1.0. It is the stable, no-network release, and it comes whe
 ## After 1.0
 
 - **1.1: transcripts.** Local transcription and a script panel for editing by text, with reviewed filler-word cleanup (a person keeps or cuts each item, never automatic), all on your own computer.
-- **1.2: automation.** A local-only endpoint, off by default, so scripts and assistants can run process chains and read session information, with a visible on/off switch and a log of what was done. Every change is a labeled, undoable step. If anything here ever needs the network, it will be opt-in and off by default, and these documents will say so.
+- **1.2: automation.** Scripting, and more for assistants to do. The assistant connection itself arrived early (Settings > Assistant, see [docs/mcp.md](docs/mcp.md)): local only, off by default, read only until you allow changes, with a visible on/off switch, a log of what was done, and every change a labeled, undoable step. If anything here ever needs the network, it will be opt-in and off by default, and these documents will say so.
 - **Only if people ask:** hosting CLAP plug-ins.
 
 ## Not planned

@@ -18,6 +18,7 @@ pub mod dsp;
 pub mod engine;
 pub mod export;
 pub mod library;
+pub mod mcp;
 pub mod paths;
 pub mod peaks;
 pub mod plugins;
@@ -61,6 +62,7 @@ pub fn run() {
         .manage(commands::wave::Playing::default())
         .manage(commands::update::PendingUpdate::default())
         .manage(commands::video::Videos::default())
+        .manage(commands::mcp::Assistant::default())
         .setup(|app| {
             // Settings from older versions are moved to the Altered Audio folder first.
             paths::migrate_settings(app.handle());
@@ -78,6 +80,11 @@ pub fn run() {
             // Reversed clips read reversed copies kept with the other working files.
             if let Ok(root) = commands::cache::cache_root(app.handle()) {
                 engine::reverse::set_dir(root.join("Reversed"));
+            }
+            // The assistant connection listens only if the person turned it on.
+            {
+                use tauri::Manager;
+                commands::mcp::init(app.handle(), &app.state::<commands::mcp::Assistant>());
             }
             Ok(())
         })
@@ -117,6 +124,13 @@ pub fn run() {
             commands::library::library_clean_up,
             commands::library::library_pick_folder,
             commands::links::open_link,
+            commands::mcp::assistant_status,
+            commands::mcp::assistant_configure,
+            commands::mcp::assistant_new_token,
+            commands::mcp::assistant_ready,
+            commands::mcp::assistant_reply,
+            commands::mcp::assistant_activity,
+            commands::mcp::assistant_clear_activity,
             commands::media::media_expand,
             commands::media::media_probe,
             commands::media::media_pick_files,
