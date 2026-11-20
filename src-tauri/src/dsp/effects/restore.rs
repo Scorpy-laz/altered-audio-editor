@@ -119,6 +119,10 @@ pub struct NoiseMask {
     noise: Vec<f32>,
     last: Vec<f32>,
     frames: u32,
+    /// STFT frames per second, for the learn time.
+    fps: f64,
+    /// Hz per bin, set for the Hiss Reducer, whose Above control moves `from_bin`.
+    hiss_bin_hz: Option<f64>,
 }
 
 impl NoiseMask {
@@ -145,7 +149,36 @@ impl NoiseMask {
             noise: vec![f32::MAX; bins],
             last: vec![1.0; bins],
             frames: 0,
+            fps,
+            hiss_bin_hz: None,
         }
+    }
+}
+
+/// New settings for a running spectral reducer, keeping what it learned.
+pub trait Retune {
+    fn retune(&mut self, p: &Params) -> bool;
+}
+
+impl Retune for NoiseMask {
+    fn retune(&mut self, p: &Params) -> bool {
+        self.floor = db_to_gain(-p.get("reduction"));
+        self.strength = p.get("strength") as f32;
+        self.rise = 10f64.powf(1.0 / (p.get("learn") * self.fps)) as f32;
+        match self.hiss_bin_hz {
+            Some(hz) => self.from_bin = (p.get("freq") / hz).floor() as usize,
+            None => self.smooth = (p.get("smoothing") / 100.0 * 0.9) as f32,
+        }
+        true
+    }
+}
+
+impl Retune for RoomMask {
+    fn retune(&mut self, p: &Params) -> bool {
+        self.amount = (p.get("amount") / 100.0 * 1.5) as f32;
+        self.floor = db_to_gain(-p.get("reduction"));
+        self.decay = 10f64.powf(-6.0 * self.dt / p.get("decay")) as f32;
+        true
     }
 }
 
@@ -218,6 +251,8 @@ pub struct RoomMask {
     floor: f32,
     /// Power falls by this over `delay` frames.
     decay: f32,
+    /// The look-back in seconds.
+    dt: f64,
     history: Vec<Vec<f32>>,
     at: usize,
     last: Vec<f32>,
@@ -235,6 +270,7 @@ impl RoomMask {
             amount: (amount / 100.0 * 1.5) as f32,
             floor: db_to_gain(-reduction_db),
             decay,
+            dt,
             history: vec![vec![0.0; bins]; delay],
             at: 0,
             last: vec![1.0; bins],
@@ -282,9 +318,12 @@ impl Mask for RoomMask {
 
 pub struct Spectral<M: Mask>(pub Stft<M>);
 
-impl<M: Mask> Processor for Spectral<M> {
+impl<M: Mask + Retune> Processor for Spectral<M> {
     fn process(&mut self, buf: &mut [f32]) {
         self.0.process(buf);
+    }
+    fn update(&mut self, p: &Params) -> bool {
+        self.0.mask.retune(p)
     }
     fn latency(&self) -> usize {
         self.0.latency()
@@ -312,8 +351,9 @@ pub fn noise_reducer(p: &Params, rate: u32) -> Spectral<NoiseMask> {
 pub fn hiss_reducer(p: &Params, rate: u32) -> Spectral<NoiseMask> {
     let n = Stft::<NoiseMask>::size_for(40.0, rate);
     let fps = f64::from(rate) / (n / 4) as f64;
-    let from = (p.get("freq") / (f64::from(rate) / n as f64)).floor() as usize;
-    let mask = NoiseMask::new(
+    let bin_hz = f64::from(rate) / n as f64;
+    let from = (p.get("freq") / bin_hz).floor() as usize;
+    let mut mask = NoiseMask::new(
         n / 2 + 1,
         from,
         p.get("reduction"),
@@ -322,6 +362,7 @@ pub fn hiss_reducer(p: &Params, rate: u32) -> Spectral<NoiseMask> {
         60.0,
         fps,
     );
+    mask.hiss_bin_hz = Some(bin_hz);
     Spectral(Stft::new(n, mask))
 }
 
@@ -362,7 +403,9 @@ struct GapFixer {
     open: Option<(u64, u64)>,
     clip_sign: f32,
     /// Every span filled so far, by input sample index (for QuickPass).
+    /// Off while playing, where the list would only grow.
     found: Vec<(u64, u64)>,
+    record: bool,
 }
 
 impl GapFixer {
@@ -376,6 +419,7 @@ impl GapFixer {
             open: None,
             clip_sign: 0.0,
             found: Vec::new(),
+            record: true,
         }
     }
 
@@ -461,7 +505,9 @@ impl GapFixer {
                 };
                 if len <= self.longest && room && worth {
                     self.fill(s, e);
-                    self.found.push((s, e));
+                    if self.record {
+                        self.found.push((s, e));
+                    }
                 }
             }
             _ => {}
@@ -480,29 +526,47 @@ impl GapFixer {
 
 pub struct GapRepair {
     ch: [GapFixer; 2],
+    /// Output level as heard now, gliding toward `gain_to`.
     gain: f32,
+    gain_to: f32,
+    glide: f32,
+    rate: u32,
+}
+
+fn click_find(p: &Params, rate: u32) -> (Find, usize) {
+    // 0% sensitivity needs a spike 40 times the usual change; 100% needs 4.
+    let factor = (40.0 * 0.1f64.powf(p.get("sensitivity") / 100.0)) as f32;
+    let longest = (p.get("width") * f64::from(rate) / 1000.0).round() as usize + 2;
+    (Find::Click { factor }, longest)
+}
+
+fn clip_find(p: &Params, rate: u32) -> (Find, usize) {
+    let level = db_to_gain(p.get("level")) * 0.999;
+    let longest = (p.get("longest") * f64::from(rate) / 1000.0).round() as usize;
+    (Find::Clip { level }, longest)
 }
 
 impl GapRepair {
-    pub fn clicks(p: &Params, rate: u32) -> Self {
-        // 0% sensitivity needs a spike 40 times the usual change; 100% needs 4.
-        let factor = (40.0 * 0.1f64.powf(p.get("sensitivity") / 100.0)) as f32;
-        let longest = (p.get("width") * f64::from(rate) / 1000.0).round() as usize + 2;
-        let f = || GapFixer::new(Find::Click { factor }, longest);
+    fn with((find, longest): (Find, usize), gain: f32, rate: u32) -> Self {
+        let f = || GapFixer {
+            record: false,
+            ..GapFixer::new(find, longest)
+        };
         Self {
             ch: [f(), f()],
-            gain: 1.0,
+            gain,
+            gain_to: gain,
+            glide: (-1.0 / (0.01 * f64::from(rate))).exp() as f32,
+            rate,
         }
     }
 
+    pub fn clicks(p: &Params, rate: u32) -> Self {
+        Self::with(click_find(p, rate), 1.0, rate)
+    }
+
     pub fn clipping(p: &Params, rate: u32) -> Self {
-        let level = db_to_gain(p.get("level")) * 0.999;
-        let longest = (p.get("longest") * f64::from(rate) / 1000.0).round() as usize;
-        let f = || GapFixer::new(Find::Clip { level }, longest);
-        Self {
-            ch: [f(), f()],
-            gain: db_to_gain(p.get("output")),
-        }
+        Self::with(clip_find(p, rate), db_to_gain(p.get("output")), rate)
     }
 }
 
@@ -637,6 +701,7 @@ pub fn repair_spots(audio: &mut [f32], ch: usize, rate: u32, spots: Spots, spans
 impl Processor for GapRepair {
     fn process(&mut self, buf: &mut [f32]) {
         for f in buf.as_chunks_mut::<2>().0 {
+            self.gain = self.gain_to + (self.gain - self.gain_to) * self.glide;
             f[0] = self.ch[0].step(f[0]) * self.gain;
             f[1] = self.ch[1].step(f[1]) * self.gain;
         }
@@ -648,6 +713,25 @@ impl Processor for GapRepair {
         for c in &mut self.ch {
             c.reset();
         }
+        self.gain = self.gain_to;
+    }
+    /// Sensitivity, clip level and output move in place; the longest
+    /// click or flat run sets the delay, so it cannot.
+    fn update(&mut self, p: &Params) -> bool {
+        let (find, longest) = match self.ch[0].find {
+            Find::Click { .. } => click_find(p, self.rate),
+            Find::Clip { .. } => {
+                self.gain_to = db_to_gain(p.get("output"));
+                clip_find(p, self.rate)
+            }
+        };
+        if longest.max(1) != self.ch[0].longest {
+            return false;
+        }
+        for c in &mut self.ch {
+            c.find = find;
+        }
+        true
     }
 }
 
@@ -682,6 +766,10 @@ impl Processor for DcBlock {
     fn reset(&mut self) {
         self.x1 = [0.0; 2];
         self.y1 = [0.0; 2];
+    }
+    /// It has no settings, so there is never anything to rebuild.
+    fn update(&mut self, _p: &Params) -> bool {
+        true
     }
 }
 
@@ -726,6 +814,71 @@ mod tests {
 
     fn db(x: f32) -> f32 {
         20.0 * x.max(1e-9).log10()
+    }
+
+    /// A moving setting keeps the learned noise: a rebuild would forget it
+    /// and let the noise through until it was learned again.
+    #[test]
+    fn reducers_keep_what_they_learned_when_a_setting_moves() {
+        use super::super::{info, Params};
+        for (id, key, to) in [
+            ("altaudio.noise_reducer", "reduction", 20.0),
+            ("altaudio.hiss_reducer", "freq", 2000.0),
+            ("altaudio.room_reducer", "amount", 70.0),
+        ] {
+            let i = info(id).unwrap();
+            let mut s = slot(id, &[]);
+            let mut fx = build(&s, R as u32).unwrap();
+            let mut b = stereo(&noise(4 * R, 0.05, 7));
+            for c in b.chunks_mut(2 * 256) {
+                fx.process(c);
+            }
+            let before = rms(&b[b.len() - R..]);
+            s.params.insert(key.into(), to);
+            assert!(fx.update(&Params::resolve(&i, &s.params)), "{id}");
+            let mut b = stereo(&noise(R / 2, 0.05, 8));
+            for c in b.chunks_mut(2 * 256) {
+                fx.process(c);
+            }
+            let after = rms(&b);
+            assert!(after.is_finite());
+            if id == "altaudio.noise_reducer" {
+                assert!(
+                    after < 0.05 * 0.4,
+                    "{id}: still reduced right away ({after})"
+                );
+            }
+            assert!(after < before * 2.0, "{id}: {before} then {after}");
+        }
+    }
+
+    #[test]
+    fn gap_repair_moves_its_detector_but_not_its_delay() {
+        use super::super::{info, Params};
+        let i = info("altaudio.click_repair").unwrap();
+        let mut fx = build(&slot("altaudio.click_repair", &[]), R as u32).unwrap();
+        let mut b = stereo(&noise(R / 10, 0.1, 3));
+        fx.process(&mut b);
+        let set =
+            |k: &str, v: f64| Params::resolve(&i, &[(k.to_string(), v)].into_iter().collect());
+        assert!(fx.update(&set("sensitivity", 70.0)));
+        assert!(
+            !fx.update(&set("width", 3.0)),
+            "the longest click sets the delay"
+        );
+        let i = info("altaudio.clip_repair").unwrap();
+        let mut fx = build(&slot("altaudio.clip_repair", &[]), R as u32).unwrap();
+        let set =
+            |k: &str, v: f64| Params::resolve(&i, &[(k.to_string(), v)].into_iter().collect());
+        assert!(fx.update(&set("output", -6.0)));
+        let mut b = vec![0.5f32; 2 * R / 10];
+        fx.process(&mut b);
+        // The output level glides to -6 dB from -3 dB.
+        assert!(
+            (b[b.len() - 1] - 0.5 * 0.501).abs() < 1e-3,
+            "{}",
+            b[b.len() - 1]
+        );
     }
 
     #[test]

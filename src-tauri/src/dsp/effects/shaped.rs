@@ -15,7 +15,7 @@
 //! cleaned audio, or only what is being removed, to hear what is lost.
 
 use super::print::{print_bins, print_settings, size};
-use super::restore::Spectral;
+use super::restore::{Retune, Spectral};
 use super::{choice, num, toggle, EffectInfo, ParamInfo, Params};
 use crate::dsp::stft::{Mask, Stft};
 
@@ -127,9 +127,26 @@ pub struct ShapedMask {
     removed: bool,
     last: Vec<f32>,
     empty: bool,
+    bin_hz: f64,
+    fps: f64,
 }
 
 impl ShapedMask {
+    /// Threshold over the noise at bin `k`, as a power ratio.
+    fn over_at(p: &Params, bin_hz: f64, k: usize) -> f32 {
+        10f64.powf(threshold_db(p, (k as f64 * bin_hz).max(20.0)) / 10.0) as f32
+    }
+
+    /// Per-frame smoothing for a time in ms: the share of the old gain kept each frame.
+    fn keep(fps: f64, ms: f64) -> f32 {
+        (-1000.0 / (ms.max(0.1) * fps)).exp() as f32
+    }
+
+    /// About two seconds to follow a drifting noise.
+    fn adapt(fps: f64) -> f32 {
+        (1.0 - (-1.0 / (2.0 * fps)).exp()) as f32
+    }
+
     /// The gain for a bin `r_db` above (or below) its threshold.
     fn want(&self, r_db: f32) -> f32 {
         let half = self.knee_db / 2.0;
@@ -185,17 +202,33 @@ impl Mask for ShapedMask {
     }
 }
 
+/// Every control moves in place: the threshold curve is recomputed into
+/// its own buffer, and the per-bin gains keep their attack and release.
+impl Retune for ShapedMask {
+    fn retune(&mut self, p: &Params) -> bool {
+        for (k, o) in self.over.iter_mut().enumerate() {
+            *o = Self::over_at(p, self.bin_hz, k);
+        }
+        self.floor_db = -(p.get("reduction") as f32);
+        self.knee_db = p.get("knee") as f32;
+        self.attack = Self::keep(self.fps, p.get("attack"));
+        self.release = Self::keep(self.fps, p.get("release"));
+        self.adapt = (p.get("adaptive") >= 0.5).then(|| Self::adapt(self.fps));
+        self.removed = p.get("monitor").round() as i64 == 1;
+        true
+    }
+}
+
 pub fn shaped_reducer(p: &Params, rate: u32) -> Spectral<ShapedMask> {
     let n = size(rate);
     let bins = n / 2 + 1;
     let (noise, empty) = print_bins(p, rate, n);
     let bin_hz = f64::from(rate) / n as f64;
     let over = (0..bins)
-        .map(|k| 10f64.powf(threshold_db(p, (k as f64 * bin_hz).max(20.0)) / 10.0) as f32)
+        .map(|k| ShapedMask::over_at(p, bin_hz, k))
         .collect();
     let fps = f64::from(rate) / (n / 4) as f64;
-    // Per-frame smoothing for a time in ms: the share of the old gain kept each frame.
-    let keep = |ms: f64| (-1000.0 / (ms.max(0.1) * fps)).exp() as f32;
+    let keep = |ms: f64| ShapedMask::keep(fps, ms);
     let mask = ShapedMask {
         noise,
         over,
@@ -203,11 +236,12 @@ pub fn shaped_reducer(p: &Params, rate: u32) -> Spectral<ShapedMask> {
         knee_db: p.get("knee") as f32,
         attack: keep(p.get("attack")),
         release: keep(p.get("release")),
-        // About two seconds to follow a drifting noise.
-        adapt: (p.get("adaptive") >= 0.5).then(|| (1.0 - (-1.0 / (2.0 * fps)).exp()) as f32),
+        adapt: (p.get("adaptive") >= 0.5).then(|| ShapedMask::adapt(fps)),
         removed: p.get("monitor").round() as i64 == 1,
         last: vec![1.0; bins],
         empty,
+        bin_hz,
+        fps,
     };
     Spectral(Stft::new(n, mask))
 }

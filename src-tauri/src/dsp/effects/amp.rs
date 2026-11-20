@@ -142,6 +142,8 @@ pub struct AmpModel {
     delay_at: usize,
     mono: Vec<f32>,
     rate: u32,
+    /// The capture's own loudness, for Level Match.
+    capture_level: Option<f64>,
 }
 
 fn tone_coeffs(p: &Params, rate: u32) -> [Coeffs; 3] {
@@ -183,9 +185,9 @@ impl AmpModel {
             delay_at: 0,
             mono: Vec::new(),
             rate,
+            capture_level: loaded.model.as_ref().and_then(|(_, i)| i.loudness),
         };
-        let capture_level = loaded.model.as_ref().and_then(|(_, i)| i.loudness);
-        a.set(p, capture_level);
+        a.set(p, a.capture_level);
         a
     }
 
@@ -283,10 +285,17 @@ impl Processor for AmpModel {
         self.gate_gain = 1.0;
     }
 
-    fn update(&mut self, _p: &Params) -> bool {
-        // Level match needs the capture's loudness, which lives with the
-        // data; rebuilding (cheap: the capture is cached) keeps it right.
-        false
+    fn update(&mut self, p: &Params) -> bool {
+        // Switching the cabinet on or off builds or drops its convolver,
+        // which cannot happen in place.
+        let has_ir = self.cab.is_some() || self.delay.is_some();
+        if has_ir && (p.get("cab") >= 0.5) != self.cab.is_some() {
+            return false;
+        }
+        // The capture's loudness was kept from the build, so Level Match
+        // stays right without reading the data again.
+        self.set(p, self.capture_level);
+        true
     }
 }
 

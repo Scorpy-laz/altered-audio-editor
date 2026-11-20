@@ -14,7 +14,7 @@
 
 use std::sync::OnceLock;
 
-use super::restore::Spectral;
+use super::restore::{Retune, Spectral};
 use super::{db_to_gain, num, EffectInfo, Params};
 use crate::dsp::stft::{Mask, Stft};
 
@@ -199,6 +199,15 @@ impl Mask for PrintMask {
     }
 }
 
+impl Retune for PrintMask {
+    fn retune(&mut self, p: &Params) -> bool {
+        self.floor = db_to_gain(-p.get("reduction"));
+        self.strength = p.get("strength") as f32;
+        self.smooth = (p.get("smoothing") / 100.0 * 0.9) as f32;
+        true
+    }
+}
+
 /// The learned print spread over the bins of an `n`-point frame, scaled
 /// like the frame power, and whether nothing was learned.
 pub(crate) fn print_bins(p: &Params, rate: u32, n: usize) -> (Vec<f32>, bool) {
@@ -318,6 +327,16 @@ impl Mask for EraserMask {
     }
     fn reset(&mut self) {
         self.last.fill(1.0);
+    }
+}
+
+impl Retune for EraserMask {
+    fn retune(&mut self, p: &Params) -> bool {
+        self.share = (0.1 + p.get("sensitivity") / 100.0 * 0.5) as f32;
+        self.floor = db_to_gain(-p.get("reduction"));
+        self.strength = p.get("strength") as f32;
+        self.smooth = (p.get("smoothing") / 100.0 * 0.9) as f32;
+        true
     }
 }
 
