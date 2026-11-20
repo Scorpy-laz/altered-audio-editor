@@ -356,6 +356,15 @@ export class SessionFiles {
     return this.saveTo(path);
   }
 
+  /**
+   * Saves to `path` with no dialog, or to the session's own file when null.
+   * False when there is no file to save to. Used by the assistant connection.
+   */
+  async saveAt(path: string | null): Promise<boolean> {
+    if (!path && !this.d.session.path) return false;
+    return this.saveTo(path);
+  }
+
   /** Offers to recover autosaves left by a crash. Call once at startup. */
   async checkRecovery(): Promise<void> {
     const found = await this.d.backend.recoverable();

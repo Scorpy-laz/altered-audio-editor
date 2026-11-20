@@ -220,6 +220,7 @@ export const MENUS: readonly Menu[] = [
       item("edit.keyboard-shortcuts", "Keyboard Shortcuts..."),
       item("edit.controllers", "Controllers..."),
       item("edit.settings", "Settings..."),
+      item("edit.assistant-activity", "Assistant Activity..."),
     ],
   },
   {

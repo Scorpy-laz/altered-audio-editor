@@ -105,10 +105,15 @@
   import { describeJoins, describePlan, FIT_XFADE, fitOps, type FitPlan } from "../panels/editor/musicfit";
   import { ALIGN_MAX_MS, alignOps, alignPair, describeAlign } from "../panels/editor/align";
   import SettingsDialog from "./settings/SettingsDialog.svelte";
+  import AssistantActivityDialog from "./AssistantActivityDialog.svelte";
+  import { AssistantDispatcher } from "./assistant/dispatcher";
+  import { assistantReady, assistantReply, assistantStatus, onAssistantActivity, onAssistantCall, type AssistantStatus } from "./core";
+  import { builtinPresets, sanitizeBank } from "../panels/voice-chain/effect-presets";
+  import { PLATFORM } from "../lib/platform";
   import { balance, balanceItems, describeBalance } from "./speaker-balance";
   import { DUCK_DEPTHS, duckPlan, hasDuck, withDuck, withoutDuck } from "./duck";
   import { HOST_PROFILES, profileById, profileOp } from "./host-profiles";
-  import type { SettingsDraft } from "./settings/pages";
+  import type { Page, SettingsDraft } from "./settings/pages";
   import { colorVars, meterPercent, sanitizeSettings, settings, type AppSettings } from "../stores/settings";
   import { setMeterSpeed, type TransportStore } from "../stores/transport";
   import GenerateDialog, { type GenerateMode, type GenerateValues } from "./GenerateDialog.svelte";
@@ -3798,8 +3803,11 @@
   // Edit > Settings.
   const KEY_SETTINGS = "app.settings";
   let settingsDraft = $state<SettingsDraft | null>(null);
-  function openSettings() {
+  /** The Settings page to open on. */
+  let settingsPage = $state<Page>("General");
+  function openSettings(page: Page = "General") {
     const ed = editor.current();
+    settingsPage = page;
     settingsDraft = {
       app: structuredClone(settings.current),
       editor: { followPlayhead: ed.followPlayhead, autoCrossfade: ed.autoCrossfade, timeFormat: ed.timeFormat },
@@ -4821,6 +4829,7 @@
       actions.register({ id: "window.minimize", run: () => minimizeWindow() }),
       actions.register({ id: "edit.keyboard-shortcuts", run: () => void (shortcutsOpen = true) }),
       actions.register({ id: "edit.settings", run: () => openSettings() }),
+      actions.register({ id: "edit.assistant-activity", run: () => void (assistantLogOpen = true) }),
       actions.register({ id: "edit.controllers", run: () => void (controllersOpen = true) }),
       actions.register({ id: "help.shortcuts", run: () => void (shortcutsOpen = true) }),
       actions.register({ id: "help.website", run: () => openLink(LINKS.website) }),
@@ -6755,6 +6764,68 @@
     };
   });
 
+  // --- Assistant connection (Settings > Assistant, off by default) ---
+  let assistant = $state<AssistantStatus | null>(null);
+  let assistantLogOpen = $state(false);
+  /** Lit for a moment after each assistant request, in the status bar. */
+  let assistantBusy = $state(false);
+  let assistantBusyTimer: ReturnType<typeof setTimeout> | undefined;
+  const assistantDispatcher = new AssistantDispatcher({
+    session,
+    history: sessionHistory,
+    transport,
+    catalog: () => effectsCatalog(),
+    chainPresets: () => chainEnv().presets!(),
+    effectPresets: (id) => [...builtinPresets(id), ...(sanitizeBank(prefs.raw("voiceChain.effectPresets"))[id] ?? [])],
+    measure: (req) => loudnessCheck(req),
+    exportMix: (path, req) => exportMix(path, req),
+    pathsExist,
+    save: async (path) => {
+      await pluginSync.captureAll().catch(showError);
+      return (await files.saveAt(path)) ? session.path : null;
+    },
+    open: (path) => files.open(path),
+    importMedia: (paths, runner) => mediaPool.importPaths(paths, runner),
+    mediaIdle: () => mediaPool.whenIdle(),
+    media: (id) => mediaPool.get(id),
+    newId: uuid,
+    platform: PLATFORM,
+  });
+
+  /** Answers tool calls the core hands over, and shows the connection in the status bar. */
+  function startAssistant(): () => void {
+    let gone = false;
+    const offs: (() => void)[] = [];
+    const keep = (p: Promise<() => void>) => void p.then((off) => (gone ? off() : offs.push(off)), showError);
+    keep(
+      onAssistantCall((c) => {
+        void assistantDispatcher
+          .run(c.tool, c.args)
+          .then((r) => assistantReply(c.id, r.text, r.structured, r.isError))
+          .catch((e: unknown) => assistantReply(c.id, String(e), null, true));
+      }).then((off) => {
+        void assistantReady(true);
+        return () => {
+          void assistantReady(false);
+          off();
+        };
+      }),
+    );
+    keep(
+      onAssistantActivity(() => {
+        assistantBusy = true;
+        clearTimeout(assistantBusyTimer);
+        assistantBusyTimer = setTimeout(() => (assistantBusy = false), 1500);
+      }),
+    );
+    void assistantStatus().then((s) => (assistant = s), () => {});
+    return () => {
+      gone = true;
+      clearTimeout(assistantBusyTimer);
+      offs.forEach((off) => off());
+    };
+  }
+
   onMount(() => {
     void prefs
       .load()
@@ -6840,6 +6911,7 @@
       .then((paths) => (paths.length ? openPaths(paths) : undefined))
       .catch(showError)
       .finally(() => restartAutosave());
+    if (isTauri()) offs.push(startAssistant());
     if (isTauri()) {
       // Opened from File Explorer while running: the core brings this window forward and hands the files here.
       let gone = false;
@@ -6940,8 +7012,29 @@
     {#if freeText}
       <span title="Free space on the drive that holds the session (or Documents)">{freeText}</span>
     {/if}
+    {#if assistant?.enabled}
+      <button
+        type="button"
+        class="assistant"
+        class:busy={assistantBusy}
+        class:warn={!!assistant.problem}
+        title={assistant.problem ?? `An assistant can connect at ${assistant.url}. ${assistant.allowEdits ? "Changes are allowed." : "Read only."} Click for its activity.`}
+        onclick={() => (assistantLogOpen = true)}>{assistant.problem ? "Assistant: not listening" : assistant.allowEdits ? "Assistant on" : "Assistant on (read only)"}</button
+      >
+    {/if}
   </footer>
 </div>
+
+{#if assistantLogOpen}
+  <AssistantActivityDialog
+    status={assistant}
+    onSettings={() => {
+      assistantLogOpen = false;
+      openSettings("Assistant");
+    }}
+    onClose={() => (assistantLogOpen = false)}
+  />
+{/if}
 
 {#if shortcutsOpen}
   <KeyboardShortcutsDialog {keymap} onChange={saveKeymap} onClose={() => (shortcutsOpen = false)} />
@@ -7098,7 +7191,15 @@
 {/if}
 
 {#if settingsDraft}
-  <SettingsDialog initial={settingsDraft} onApply={applySettingsDraft} onNotice={showNotice} onClose={() => (settingsDraft = null)} />
+  <SettingsDialog
+    initial={settingsDraft}
+    page={settingsPage}
+    onApply={applySettingsDraft}
+    onNotice={showNotice}
+    onClose={() => (settingsDraft = null)}
+    onAssistantActivity={() => (assistantLogOpen = true)}
+    onAssistantStatus={(st) => (assistant = st)}
+  />
 {/if}
 
 {#if recordOptionsOpen}
@@ -7433,6 +7534,28 @@
   }
 
   .warn {
+    color: var(--danger);
+  }
+
+  .status .assistant {
+    height: 16px;
+    padding: 0 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    cursor: pointer;
+  }
+  .status .assistant:hover {
+    color: var(--text);
+  }
+  .status .assistant.busy {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .status .assistant.warn {
+    border-color: var(--danger);
     color: var(--danger);
   }
 </style>

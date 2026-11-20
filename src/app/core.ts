@@ -1676,3 +1676,48 @@ export interface InterchangeResult {
 export function exportInterchange(folder: string, request: InterchangeRequest): Promise<InterchangeResult> {
   return invoke<InterchangeResult>("export_interchange", { folder, request });
 }
+// --- Assistant connection (MCP); see src-tauri/src/commands/mcp.rs ---
+
+/** Settings > Assistant. */
+export interface AssistantStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  token: string;
+  allowEdits: boolean;
+  /** Why it is not listening although it is on (port taken). */
+  problem: string | null;
+  url: string;
+  /** This program, for the bridge command in assistant settings. */
+  exe: string;
+  bridgeFlag: string;
+}
+
+/** One line of the assistant's activity log. */
+export interface AssistantEntry {
+  seq: number;
+  time: string;
+  tool: string;
+  args: string;
+  ok: boolean;
+  message: string;
+}
+
+/** A tool call the core hands to the interface. */
+export interface AssistantCall {
+  id: number;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export const assistantStatus = (): Promise<AssistantStatus> => invoke<AssistantStatus>("assistant_status");
+export const assistantConfigure = (enabled: boolean, port: number, allowEdits: boolean): Promise<AssistantStatus> =>
+  invoke<AssistantStatus>("assistant_configure", { enabled, port, allowEdits });
+export const assistantNewToken = (): Promise<AssistantStatus> => invoke<AssistantStatus>("assistant_new_token");
+export const assistantReady = (ready: boolean): Promise<void> => invoke<void>("assistant_ready", { ready });
+export const assistantReply = (id: number, text: string, structured: unknown, isError: boolean): Promise<void> =>
+  invoke<void>("assistant_reply", { id, text, structured: structured ?? null, isError });
+export const assistantActivity = (limit?: number): Promise<AssistantEntry[]> => invoke<AssistantEntry[]>("assistant_activity", { limit: limit ?? null });
+export const assistantClearActivity = (): Promise<void> => invoke<void>("assistant_clear_activity");
+export const onAssistantCall = (fn: (c: AssistantCall) => void): Promise<() => void> => listen<AssistantCall>("assistant-call", (e) => fn(e.payload));
+export const onAssistantActivity = (fn: (e: AssistantEntry) => void): Promise<() => void> => listen<AssistantEntry>("assistant-activity", (e) => fn(e.payload));

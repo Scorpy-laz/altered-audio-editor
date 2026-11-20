@@ -13,6 +13,8 @@
   import { audioDriver, audioInputs, audioOutputs, outputChannels, type AudioDriver, type AudioInput } from "../core";
   import { keepLast } from "./device-cache";
   import BackupPage from "./BackupPage.svelte";
+  import AssistantPage from "./AssistantPage.svelte";
+  import type { AssistantStatus } from "../core";
   import { BROADCAST_REGIONS, targetsFor } from "../loudness";
   import { DEFAULT_SETTINGS, NO_COLORS, TIMECODE_RATES, type AppColors } from "../../stores/settings";
   import { cleanDraft, LATER_PAGES, PAGES, sizeText, type Page, type SettingsDraft } from "./pages";
@@ -23,9 +25,13 @@
     onApply: (d: SettingsDraft) => void;
     onNotice?: (m: string) => void;
     onClose: () => void;
+    /** Settings > Assistant: opens the Assistant Activity window. */
+    onAssistantActivity?: () => void;
+    /** Settings > Assistant: the connection's state changed. */
+    onAssistantStatus?: (s: AssistantStatus) => void;
   }
 
-  const { initial, page: startPage = "General", onApply, onNotice = () => {}, onClose }: Props = $props();
+  const { initial, page: startPage = "General", onApply, onNotice = () => {}, onClose, onAssistantActivity, onAssistantStatus }: Props = $props();
 
   // svelte-ignore state_referenced_locally
   let d = $state<SettingsDraft>($state.snapshot(initial) as SettingsDraft);
@@ -457,9 +463,13 @@
           <p class="note">Podcast targets follow published podcast guidance (stereo -16 LUFS, mono -19 LUFS, true peak at or below -1 dBTP). Broadcast targets follow the region.</p>
         {:else if page === "Automation"}
           <p class="note">Process chains are available now. Multitrack &gt; Run Process Chain runs a saved list of steps (Auto Mic Mix, Close Dead Space, Loudness Target, a Voice Chain preset, QuickPass) on the open session as one undo step. Example chains come with the program, in the docs/chains folder.</p>
-          <p class="note">Scripting, and a local endpoint that lets other programs and AI agents drive the editor, are planned for after 1.0. They are not in this version, nothing listens for connections, and there is nothing here to turn on. When they arrive they will be off by default and will keep to this computer.</p>
+          <p class="note">Settings &gt; Assistant lets an AI assistant on this computer drive the editor through a local connection. It is off until you turn it on.</p>
+        {:else if page === "Assistant"}
+          <AssistantPage onOpenActivity={onAssistantActivity} onStatus={onAssistantStatus} />
+        {:else if page === "Privacy"}
           <p class="note">Altered Audio Editor never goes online by itself. No account, no sign-in, no tracking, no usage data, no crash reports. Everything stays on this computer.</p>
           <p class="note">The only web pages it opens are the ones you pick in the Help menu, in your own browser.</p>
+          <p class="note">The assistant connection (Settings &gt; Assistant) is off unless you turn it on. When on, it accepts connections from this computer only and the editor still sends nothing anywhere. An assistant you connect may send what it reads (track names, file names, levels) to its own online service; that is between you and that service.</p>
           <label><input type="checkbox" bind:checked={d.app.updateCheck} /> Check for updates once a week</label>
           <p class="note">Off unless you turn it on. When on, the app reads one small file from this project's GitHub releases about once a week and shows a line when a newer version exists. It sends nothing about you or your audio and never installs anything without your click. Help > Check for Updates works either way.</p>
         {/if}
