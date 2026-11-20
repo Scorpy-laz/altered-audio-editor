@@ -67,6 +67,9 @@ pub struct Stretcher {
     /// Where the last frame was taken from (input frame), for the phase step.
     prev_center: i64,
     first: bool,
+    /// Where the ratio last changed: from frame `anchor.0` on, frames are
+    /// taken from input frame `anchor.1` onward at the current ratio.
+    anchor: (i64, f64),
     /// Per bin: the reference's phase in the last frame, and the phase given out.
     prev_phase: Vec<f32>,
     out_phase: Vec<f32>,
@@ -120,6 +123,7 @@ impl Stretcher {
             frame: -1,
             prev_center: 0,
             first: true,
+            anchor: (0, 0.0),
             prev_phase: vec![0.0; bins],
             out_phase: vec![0.0; bins],
             prev_mag: vec![0.0; bins],
@@ -169,8 +173,27 @@ impl Stretcher {
         if k < 0 {
             out
         } else {
-            (out as f64 / self.ratio).round() as i64
+            self.exact_center(k).round() as i64
         }
+    }
+
+    fn exact_center(&self, k: i64) -> f64 {
+        let (k0, c0) = self.anchor;
+        c0 + ((k - k0) * self.hop as i64) as f64 / self.ratio
+    }
+
+    /// Changes the ratio from the next frame on, carrying on from where
+    /// the input has got to, so the sound neither jumps nor restarts.
+    /// Returns the output frame from which the new ratio applies. Only for
+    /// open-ended streams: a stream that has ended keeps its length.
+    pub fn set_ratio(&mut self, ratio: f64) -> i64 {
+        let ratio = ratio.clamp(0.125, 8.0);
+        let k = self.frame.max(0);
+        if ratio != self.ratio {
+            self.anchor = (k, self.exact_center(k));
+            self.ratio = ratio;
+        }
+        k * self.hop as i64
     }
 
     /// Appends all output that the input so far allows (stereo interleaved).

@@ -27,8 +27,21 @@ pub fn pitch_info() -> EffectInfo {
     }
 }
 
+/// Most speed changes waiting to reach the reader at once; more are
+/// folded into the last one.
+const PENDING: usize = 32;
+
 pub struct PitchShift {
     factor: f64,
+    /// The factor the reader uses now: the stretched audio it reads was
+    /// made at this factor, so it changes only when the reader reaches
+    /// audio made at a new one.
+    reading: f64,
+    /// Changes on the way: (stretched frame where it starts, factor).
+    pending: [(i64, f64); PENDING],
+    waiting: usize,
+    /// Stretched frames already read and dropped.
+    done: i64,
     rate: u32,
     st: Option<Stretcher>,
     stretched: Vec<f32>,
@@ -40,8 +53,7 @@ pub struct PitchShift {
 
 impl PitchShift {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let semis = p.get("semitones") + p.get("cents") / 100.0;
-        let factor = 2f64.powf(semis / 12.0).clamp(0.5, 2.0);
+        let factor = Self::factor(p);
         // Enough to cover the stretch's frame and search, at any factor.
         let latency = if (factor - 1.0).abs() < 1e-6 {
             0
@@ -50,6 +62,10 @@ impl PitchShift {
         };
         let mut me = Self {
             factor,
+            reading: factor,
+            pending: [(0, 1.0); PENDING],
+            waiting: 0,
+            done: 0,
             rate,
             st: None,
             stretched: Vec::new(),
@@ -60,6 +76,11 @@ impl PitchShift {
         };
         me.reset();
         me
+    }
+
+    fn factor(p: &Params) -> f64 {
+        let semis = p.get("semitones") + p.get("cents") / 100.0;
+        2f64.powf(semis / 12.0).clamp(0.5, 2.0)
     }
 }
 
@@ -87,6 +108,11 @@ impl Processor for PitchShift {
         // Read the stretched audio `factor` times faster.
         let frames = self.stretched.len() / 2;
         while (self.pos as usize) + 3 < frames {
+            while self.waiting > 0 && self.pending[0].0 as f64 <= self.done as f64 + self.pos {
+                self.reading = self.pending[0].1;
+                self.pending.copy_within(1..self.waiting, 0);
+                self.waiting -= 1;
+            }
             let i = self.pos as usize;
             let t = (self.pos - i as f64) as f32;
             for c in 0..2 {
@@ -95,12 +121,13 @@ impl Processor for PitchShift {
                 let a = if i > 0 { s(0) } else { s(1) };
                 self.out.push_back(cubic(a, s(1), s(2), s(3), t));
             }
-            self.pos += self.factor;
+            self.pos += self.reading;
         }
         let used = (self.pos as usize).min(frames);
         if used > 0 {
             self.stretched.drain(..used * 2);
             self.pos -= used as f64;
+            self.done += used as i64;
         }
         for v in buf.iter_mut() {
             *v = self.out.pop_front().unwrap_or(0.0);
@@ -114,10 +141,35 @@ impl Processor for PitchShift {
         self.st = (self.latency > 0).then(|| Stretcher::with_frame(self.factor, self.rate, 0.015));
         self.stretched.clear();
         self.pos = 0.0;
+        self.done = 0;
+        self.reading = self.factor;
+        self.waiting = 0;
         self.out.clear();
         // The stretch's first sample lines up one frame in (see `cubic`).
         let lead = self.latency.saturating_sub(1);
         self.out.extend(std::iter::repeat_n(0.0, lead * 2));
+    }
+    /// A new pitch while it plays: the stretch takes the new factor from
+    /// its next frame, and the reader follows when it gets there. Built
+    /// with no shift (and so no delay), it cannot start shifting without
+    /// changing its latency, so it is rebuilt then.
+    fn update(&mut self, p: &Params) -> bool {
+        let factor = Self::factor(p);
+        let Some(st) = self.st.as_mut() else {
+            return (factor - 1.0).abs() < 1e-6;
+        };
+        if factor == self.factor {
+            return true;
+        }
+        let from = st.set_ratio(factor);
+        self.factor = factor;
+        if self.waiting == PENDING {
+            self.pending[PENDING - 1] = (from, factor);
+        } else {
+            self.pending[self.waiting] = (from, factor);
+            self.waiting += 1;
+        }
+        true
     }
 }
 
@@ -190,5 +242,57 @@ mod tests {
         let after = &left[p.latency() + 4800..];
         let silent = after.windows(480).any(|w| w.iter().all(|v| v.abs() < 1e-4));
         assert!(!silent, "no gaps once running");
+    }
+
+    mod automation {
+        use super::super::super::glide::testing::*;
+
+        const FX: &str = "altaudio.pitch_shift";
+
+        /// Frequency of the left channel from rising zero crossings.
+        fn freq(b: &[f32]) -> f32 {
+            let left: Vec<f32> = b.iter().step_by(2).copied().collect();
+            let ups = left
+                .windows(2)
+                .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+                .count();
+            ups as f32 * RATE as f32 / left.len() as f32
+        }
+
+        #[test]
+        fn a_moving_pitch_follows_without_restarting() {
+            let mut p = make(FX, &[("semitones", 2.0)]);
+            let mut b = sine(440.0, RATE as usize * 3);
+            let third = b.len() / 3;
+            let (a, rest) = b.split_at_mut(third);
+            for c in a.chunks_mut(256) {
+                p.process(c);
+            }
+            let (sweep, hold) = rest.split_at_mut(third);
+            ramp(&mut *p, FX, &[], "semitones", (2.0, 7.0), sweep, 128);
+            for c in hold.chunks_mut(256) {
+                assert!(p.update(&params(FX, &[("semitones", 7.0)])));
+                p.process(c);
+            }
+            assert!(b.iter().all(|s| s.is_finite()));
+            let n = b.len();
+            // Steady before and after: about 2 and then 7 semitones up.
+            let before = freq(&b[n / 6..n / 3]);
+            let after = freq(&b[n * 5 / 6..]);
+            let want = |st: f32| 440.0 * 2f32.powf(st / 12.0);
+            assert!((before - want(2.0)).abs() < 10.0, "{before}");
+            assert!((after - want(7.0)).abs() < 10.0, "{after}");
+            // Never a gap: the sound keeps going through the sweep.
+            for c in b[n / 3..].chunks(2 * 2400) {
+                assert!(rms(c) > 0.1, "a gap in the sound: {}", rms(c));
+            }
+        }
+
+        #[test]
+        fn built_without_a_shift_it_must_be_rebuilt_to_start_one() {
+            let mut p = make(FX, &[]);
+            assert!(p.update(&params(FX, &[])));
+            assert!(!p.update(&params(FX, &[("cents", 50.0)])));
+        }
     }
 }
