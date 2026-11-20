@@ -482,7 +482,7 @@
       const a = Math.max(0, xOf(selection.start, view));
       const b = Math.min(w, xOf(selection.end, view));
       if (b > a) {
-        g.fillStyle = css("--sel-wash");
+        g.fillStyle = css("--wave-sel-wash");
         g.fillRect(a, 0, b - a, h);
       }
     }

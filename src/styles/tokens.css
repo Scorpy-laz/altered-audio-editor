@@ -82,6 +82,7 @@
   --overlay: rgba(255, 255, 255, 0.08);
   /* A time selection drawn over waveforms and rulers. */
   --sel-wash: rgba(255, 255, 255, 0.16);
+  --wave-sel-wash: rgba(255, 255, 255, 0.14);
   /* Past the end of a file in the Waveform editor, and a veil over something switched off. */
   --past-end: rgba(0, 0, 0, 0.35);
   --veil: rgba(0, 0, 0, 0.55);
@@ -196,7 +197,7 @@
   --lane-a: #ededf1;
   --lane-b: #e5e5ea;
   --lane-selected: #d3dcea;
-  --track-gap: #b4b4bd;
+  --track-gap: #c6c6cd;
   --header-a: #e0e0e5;
   --header-b: #d8d8de;
 
@@ -224,6 +225,7 @@
   --well-deep: #ffffff;
   --overlay: rgba(0, 0, 0, 0.05);
   --sel-wash: rgba(26, 111, 201, 0.18);
+  --wave-sel-wash: rgba(26, 111, 201, 0.16);
   --past-end: rgba(0, 0, 0, 0.08);
   --veil: rgba(243, 243, 245, 0.7);
   --frame: #3c3c46;

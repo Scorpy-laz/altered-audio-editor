@@ -4119,7 +4119,7 @@
     width: 8px;
     /* A softer strip: the track color blended toward the header, with faint grip lines. */
     background: color-mix(in srgb, var(--track-color, var(--border-strong)) 62%, var(--header-a));
-    background-image: repeating-linear-gradient(180deg, transparent 0 3px, var(--shade) 3px 4px);
+    background-image: repeating-linear-gradient(180deg, transparent 0 3px, rgba(0, 0, 0, 0.09) 3px 4px);
     cursor: grab;
   }
 
