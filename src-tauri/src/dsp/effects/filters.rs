@@ -9,8 +9,11 @@
 //! from textbook filter design; coefficients use the same published
 //! cookbook formulas as the Parametric EQ.
 
+use super::eq::{butterworth_q, Stage};
+use super::glide::Glide;
 use super::{choice, db_to_gain, num, toggle, EffectInfo, ParamInfo, Params, Processor};
-use crate::dsp::biquad::{butterworth_qs, Coeffs, Shape, StereoBiquad};
+use crate::dsp::biquad::{Coeffs, Shape, StereoBiquad};
+use crate::dsp::elliptic::MAX_SECTIONS;
 use crate::dsp::stft::{Mask, Stft};
 
 /// Octave centres for the 10-band EQ.
@@ -107,8 +110,13 @@ pub fn band_infos() -> [EffectInfo; 3] {
 }
 
 pub struct BandEq {
-    filters: Vec<StereoBiquad>,
-    gain: f32,
+    n: usize,
+    rate: u32,
+    q: f64,
+    /// Band centres below the top of the range, one filter each.
+    centres: Vec<f64>,
+    filters: Vec<Stage>,
+    gain: Glide,
 }
 
 impl BandEq {
@@ -120,17 +128,30 @@ impl BandEq {
             _ => 2.87,
         };
         let nyquist = f64::from(rate) * 0.45;
-        let filters = band_centres(n)
+        let centres: Vec<f64> = band_centres(n)
             .into_iter()
-            .enumerate()
-            .filter(|(i, f)| *f < nyquist && p.get(band_key(n, *i)).abs() > 1e-3)
-            .map(|(i, f)| {
-                StereoBiquad::new(Coeffs::new(Shape::Peak, rate, f, q, p.get(band_key(n, i))))
-            })
+            .take_while(|f| *f < nyquist)
             .collect();
-        Self {
-            filters,
-            gain: db_to_gain(p.get("output")),
+        let mut me = Self {
+            n,
+            rate,
+            q,
+            filters: centres.iter().map(|_| Stage::off()).collect(),
+            centres,
+            gain: Glide::new(f64::from(db_to_gain(p.get("output")))),
+        };
+        me.tune(p);
+        me
+    }
+
+    /// A band joins once it is off 0 dB and then stays, so a gain moving
+    /// through 0 dB never restarts its filter.
+    fn tune(&mut self, p: &Params) {
+        for (i, (s, f)) in self.filters.iter_mut().zip(&self.centres).enumerate() {
+            let g = p.get(band_key(self.n, i));
+            if s.on || g.abs() > 1e-3 {
+                s.set(Coeffs::new(Shape::Peak, self.rate, *f, self.q, g));
+            }
         }
     }
 }
@@ -140,9 +161,12 @@ impl Processor for BandEq {
         for f in &mut self.filters {
             f.process(buf);
         }
-        if self.gain != 1.0 {
-            for s in buf.iter_mut() {
-                *s *= self.gain;
+        self.gain.begin(buf.len() / 2);
+        if self.gain.moving() || self.gain.value() != 1.0 {
+            for f in buf.as_chunks_mut::<2>().0 {
+                let g = self.gain.next() as f32;
+                f[0] *= g;
+                f[1] *= g;
             }
         }
     }
@@ -150,6 +174,11 @@ impl Processor for BandEq {
         for f in &mut self.filters {
             f.reset();
         }
+    }
+    fn update(&mut self, p: &Params) -> bool {
+        self.tune(p);
+        self.gain.set(f64::from(db_to_gain(p.get("output"))));
+        true
     }
 }
 
@@ -192,33 +221,53 @@ pub fn notch_info() -> EffectInfo {
     }
 }
 
-pub struct Notches(Vec<StereoBiquad>);
+pub struct Notches {
+    rate: u32,
+    filters: [Stage; NOTCHES],
+}
 
 impl Notches {
     pub fn new(p: &Params, rate: u32) -> Self {
+        let mut me = Self {
+            rate,
+            filters: std::array::from_fn(|_| Stage::off()),
+        };
+        me.tune(p);
+        me
+    }
+
+    fn tune(&mut self, p: &Params) {
         let q = p.get("width");
-        Self(
-            NOTCH_KEYS
-                .iter()
-                .filter(|k| p.on(k[0]))
-                .map(|k| {
-                    StereoBiquad::new(Coeffs::new(Shape::Peak, rate, p.get(k[1]), q, p.get(k[2])))
-                })
-                .collect(),
-        )
+        for (s, k) in self.filters.iter_mut().zip(NOTCH_KEYS) {
+            if p.on(k[0]) {
+                s.set(Coeffs::new(
+                    Shape::Peak,
+                    self.rate,
+                    p.get(k[1]),
+                    q,
+                    p.get(k[2]),
+                ));
+            } else {
+                s.on = false;
+            }
+        }
     }
 }
 
 impl Processor for Notches {
     fn process(&mut self, buf: &mut [f32]) {
-        for f in &mut self.0 {
+        for f in &mut self.filters {
             f.process(buf);
         }
     }
     fn reset(&mut self) {
-        for f in &mut self.0 {
+        for f in &mut self.filters {
             f.reset();
         }
+    }
+    fn update(&mut self, p: &Params) -> bool {
+        self.tune(p);
+        true
     }
 }
 
@@ -282,47 +331,58 @@ pub fn precision_info() -> EffectInfo {
     }
 }
 
-/// One second-order section of the analog prototype: frequency scale
-/// relative to the cutoff, and Q.
-fn sections(design: usize, order: usize, ripple: f64) -> Vec<(f64, f64)> {
-    let pairs = order / 2;
+/// The second-order sections of the analog prototype, written into
+/// `out`: frequency scale relative to the cutoff, and Q. Returns how
+/// many. Makes no lists, so it can run while audio plays.
+fn sections(
+    design: usize,
+    order: usize,
+    ripple: f64,
+    out: &mut [(f64, f64); MAX_SECTIONS],
+) -> usize {
+    let pairs = (order / 2).min(MAX_SECTIONS);
     match design {
         1 => {
             // Chebyshev type I poles; each pair gives a section's
             // natural frequency and Q.
             let eps = (10f64.powf(ripple / 10.0) - 1.0).sqrt();
             let mu = (1.0 / eps).asinh() / order as f64;
-            (1..=pairs)
-                .map(|k| {
-                    let th = std::f64::consts::PI * (2 * k - 1) as f64 / (2 * order) as f64;
-                    let s = mu.sinh() * th.sin();
-                    let w = mu.cosh() * th.cos();
-                    let w0 = (s * s + w * w).sqrt();
-                    (w0, w0 / (2.0 * s))
-                })
-                .collect()
+            for (i, o) in out.iter_mut().take(pairs).enumerate() {
+                let k = i + 1;
+                let th = std::f64::consts::PI * (2 * k - 1) as f64 / (2 * order) as f64;
+                let s = mu.sinh() * th.sin();
+                let w = mu.cosh() * th.cos();
+                let w0 = (s * s + w * w).sqrt();
+                *o = (w0, w0 / (2.0 * s));
+            }
         }
-        2 => match order {
+        2 => {
             // Bessel sections, normalised to -3 dB at the cutoff.
-            2 => vec![(1.2736, 0.5773)],
-            4 => vec![(1.4192, 0.5219), (1.5912, 0.8055)],
-            6 => vec![(1.6060, 0.5103), (1.6913, 0.6112), (1.9071, 1.0234)],
-            _ => vec![
-                (1.7837, 0.5060),
-                (1.8376, 0.5596),
-                (1.9591, 0.7109),
-                (2.1953, 1.2257),
-            ],
-        },
-        _ => butterworth_qs(pairs)
-            .into_iter()
-            .map(|q| (1.0, q))
-            .collect(),
+            let table: &[(f64, f64)] = match order {
+                2 => &[(1.2736, 0.5773)],
+                4 => &[(1.4192, 0.5219), (1.5912, 0.8055)],
+                6 => &[(1.6060, 0.5103), (1.6913, 0.6112), (1.9071, 1.0234)],
+                _ => &[
+                    (1.7837, 0.5060),
+                    (1.8376, 0.5596),
+                    (1.9591, 0.7109),
+                    (2.1953, 1.2257),
+                ],
+            };
+            out[..table.len()].copy_from_slice(table);
+            return table.len();
+        }
+        _ => {
+            for (k, o) in out.iter_mut().take(pairs).enumerate() {
+                *o = (1.0, butterworth_q(pairs, k));
+            }
+        }
     }
+    pairs
 }
 
 /// The analog design and its depth for one Precision Filter.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct Design {
     kind: usize,
     order: usize,
@@ -330,31 +390,68 @@ struct Design {
     stop: f64,
 }
 
-fn cascade(shape: Shape, d: Design, freq: f64, rate: u32) -> Vec<Coeffs> {
+impl Design {
+    fn of(p: &Params) -> Self {
+        Self {
+            kind: p.index("design").min(3),
+            order: [2, 4, 6, 8][p.index("order").min(3)],
+            ripple: p.get("ripple"),
+            stop: p.get("stop"),
+        }
+    }
+}
+
+/// The cascade for one edge, written into `out`; returns how many sections.
+fn cascade(
+    shape: Shape,
+    d: Design,
+    freq: f64,
+    rate: u32,
+    out: &mut [Coeffs; MAX_SECTIONS],
+) -> usize {
     if d.kind == 3 {
-        return crate::dsp::elliptic::elliptic(
+        return crate::dsp::elliptic::elliptic_into(
             shape == Shape::HighPass,
             d.order,
             d.ripple,
             d.stop,
             freq,
             rate,
+            out,
         );
     }
-    sections(d.kind, d.order, d.ripple)
-        .into_iter()
-        .map(|(scale, q)| {
-            let f = if shape == Shape::LowPass {
-                freq * scale
-            } else {
-                freq / scale
-            };
-            Coeffs::new(shape, rate, f, q, 0.0)
-        })
-        .collect()
+    let mut proto = [(0.0, 0.0); MAX_SECTIONS];
+    let n = sections(d.kind, d.order, d.ripple, &mut proto);
+    for (&(scale, q), o) in proto.iter().zip(out.iter_mut()).take(n) {
+        let f = if shape == Shape::LowPass {
+            freq * scale
+        } else {
+            freq / scale
+        };
+        *o = Coeffs::new(shape, rate, f, q, 0.0);
+    }
+    n
+}
+
+/// One edge of the filter: which shape, and at the lower or upper frequency.
+#[derive(Clone, Copy)]
+struct Edge(Shape, bool);
+
+/// The edges each mode is built from, in order. Band-stop's two run side
+/// by side; the others run in series.
+fn edges(mode: usize) -> &'static [Edge] {
+    match mode {
+        0 => &[Edge(Shape::LowPass, false)],
+        1 => &[Edge(Shape::HighPass, false)],
+        2 => &[Edge(Shape::HighPass, false), Edge(Shape::LowPass, true)],
+        _ => &[Edge(Shape::LowPass, false), Edge(Shape::HighPass, true)],
+    }
 }
 
 pub struct Precision {
+    rate: u32,
+    mode: usize,
+    design: Design,
     /// Filters in series.
     chain: Vec<StereoBiquad>,
     /// Band-stop: a low-pass and a high-pass in parallel, summed.
@@ -364,42 +461,50 @@ pub struct Precision {
 
 impl Precision {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let design = Design {
-            kind: p.index("design").min(3),
-            order: [2, 4, 6, 8][p.index("order").min(3)],
-            ripple: p.get("ripple"),
-            stop: p.get("stop"),
-        };
-        let lo = p.get("freq").min(p.get("freq2"));
-        let hi = p.get("freq").max(p.get("freq2"));
-        let mk = |v: Vec<Coeffs>| v.into_iter().map(StereoBiquad::new).collect::<Vec<_>>();
-        let (chain, split) = match p.index("mode") {
-            0 => (
-                mk(cascade(Shape::LowPass, design, p.get("freq"), rate)),
-                None,
-            ),
-            1 => (
-                mk(cascade(Shape::HighPass, design, p.get("freq"), rate)),
-                None,
-            ),
-            2 => {
-                let mut c = mk(cascade(Shape::HighPass, design, lo, rate));
-                c.extend(mk(cascade(Shape::LowPass, design, hi, rate)));
-                (c, None)
-            }
-            _ => (
-                Vec::new(),
-                Some((
-                    mk(cascade(Shape::LowPass, design, lo, rate)),
-                    mk(cascade(Shape::HighPass, design, hi, rate)),
-                )),
-            ),
-        };
-        Self {
-            chain,
-            split,
+        let mode = p.index("mode");
+        let mut me = Self {
+            rate,
+            mode,
+            design: Design::of(p),
+            chain: Vec::new(),
+            split: None,
             scratch: Vec::new(),
+        };
+        let mut lists: [Vec<StereoBiquad>; 2] = [Vec::new(), Vec::new()];
+        let mut c = [Coeffs::FLAT; MAX_SECTIONS];
+        for (list, &edge) in lists.iter_mut().zip(edges(mode)) {
+            let n = cascade(edge.0, me.design, me.freq(p, edge), rate, &mut c);
+            list.extend(c[..n].iter().copied().map(StereoBiquad::new));
         }
+        let [a, b] = lists;
+        if mode >= 3 {
+            me.split = Some((a, b));
+        } else {
+            me.chain = a;
+            me.chain.extend(b);
+        }
+        me
+    }
+
+    /// The frequency an edge sits at. Band modes use the lower and upper
+    /// of the two frequencies; single filters use the first.
+    fn freq(&self, p: &Params, edge: Edge) -> f64 {
+        if self.mode < 2 {
+            return p.get("freq");
+        }
+        let (a, b) = (p.get("freq"), p.get("freq2"));
+        if edge.1 {
+            a.max(b)
+        } else {
+            a.min(b)
+        }
+    }
+}
+
+fn set_all(filters: &mut [StereoBiquad], c: &[Coeffs]) {
+    for (f, c) in filters.iter_mut().zip(c) {
+        f.l.set(*c);
+        f.r.set(*c);
     }
 }
 
@@ -431,6 +536,31 @@ impl Processor for Precision {
                 f.reset();
             }
         }
+    }
+    /// Frequencies, design, ripple and depth change in place. A new type
+    /// or order changes how many filters there are, so those rebuild.
+    fn update(&mut self, p: &Params) -> bool {
+        let design = Design::of(p);
+        if p.index("mode") != self.mode || design.order != self.design.order {
+            return false;
+        }
+        self.design = design;
+        let (rate, mode) = (self.rate, self.mode);
+        let mut c = [[Coeffs::FLAT; MAX_SECTIONS]; 2];
+        let mut n = [0usize; 2];
+        for (k, &edge) in edges(mode).iter().enumerate() {
+            n[k] = cascade(edge.0, design, self.freq(p, edge), rate, &mut c[k]);
+        }
+        if let Some((low, high)) = self.split.as_mut() {
+            set_all(low, &c[0][..n[0]]);
+            set_all(high, &c[1][..n[1]]);
+        } else {
+            let cut = n[0].min(self.chain.len());
+            let (first, rest) = self.chain.split_at_mut(cut);
+            set_all(first, &c[0][..n[0]]);
+            set_all(rest, &c[1][..n[1]]);
+        }
+        true
     }
 }
 
@@ -483,57 +613,85 @@ impl Mask for CurveMask {
 }
 
 pub fn curve_gains(points: &[(f64, f64)], bins: usize, rate: u32) -> Vec<f32> {
-    let mut pts: Vec<(f64, f64)> = points
-        .iter()
-        .map(|(f, g)| (f.max(1.0).log2(), *g))
-        .collect();
-    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let n = (bins - 1) * 2;
-    (0..bins)
-        .map(|k| {
-            let f = (k as f64 * f64::from(rate) / n as f64).max(1.0).log2();
-            let db = match pts.iter().position(|p| p.0 >= f) {
-                None => pts.last().map_or(0.0, |p| p.1),
-                Some(0) => pts[0].1,
-                Some(i) => {
-                    let (a, b) = (pts[i - 1], pts[i]);
-                    let t = if b.0 > a.0 {
-                        (f - a.0) / (b.0 - a.0)
-                    } else {
-                        0.0
-                    };
-                    // Smoothstep between points so the curve has no corners.
-                    let t = t * t * (3.0 - 2.0 * t);
-                    a.1 + (b.1 - a.1) * t
-                }
-            };
-            db_to_gain(db)
-        })
-        .collect()
+    let mut out = vec![0.0; bins];
+    curve_gains_into(points, rate, &mut out);
+    out
 }
 
-pub struct CurveEq(Stft<CurveMask>);
+/// The same, written into `out` (one gain per bin) without making a list,
+/// so it can run while audio plays. Up to [`POINTS`] points are used.
+pub fn curve_gains_into(points: &[(f64, f64)], rate: u32, out: &mut [f32]) {
+    let mut pts = [(0.0, 0.0); POINTS];
+    let count = points.len().min(POINTS);
+    for (o, (f, g)) in pts.iter_mut().zip(points) {
+        *o = (f.max(1.0).log2(), *g);
+    }
+    let pts = &mut pts[..count];
+    // Insertion sort: in place and stable, as the curve has always sorted.
+    for i in 1..pts.len() {
+        let mut j = i;
+        while j > 0 && pts[j - 1].0.total_cmp(&pts[j].0).is_gt() {
+            pts.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+    let bins = out.len();
+    let n = (bins.max(2) - 1) * 2;
+    for (k, o) in out.iter_mut().enumerate() {
+        let f = (k as f64 * f64::from(rate) / n as f64).max(1.0).log2();
+        let db = match pts.iter().position(|p| p.0 >= f) {
+            None => pts.last().map_or(0.0, |p| p.1),
+            Some(0) => pts[0].1,
+            Some(i) => {
+                let (a, b) = (pts[i - 1], pts[i]);
+                let t = if b.0 > a.0 {
+                    (f - a.0) / (b.0 - a.0)
+                } else {
+                    0.0
+                };
+                // Smoothstep between points so the curve has no corners.
+                let t = t * t * (3.0 - 2.0 * t);
+                a.1 + (b.1 - a.1) * t
+            }
+        };
+        *o = db_to_gain(db);
+    }
+}
+
+fn curve_points(p: &Params) -> [(f64, f64); POINTS] {
+    CURVE_KEYS.map(|k| (p.get(k[0]), p.get(k[1])))
+}
+
+pub struct CurveEq {
+    rate: u32,
+    stft: Stft<CurveMask>,
+}
 
 impl CurveEq {
     pub fn new(p: &Params, rate: u32) -> Self {
         let n = Stft::<CurveMask>::size_for(80.0, rate);
-        let pts: Vec<(f64, f64)> = CURVE_KEYS
-            .iter()
-            .map(|k| (p.get(k[0]), p.get(k[1])))
-            .collect();
-        Self(Stft::new(n, CurveMask(curve_gains(&pts, n / 2 + 1, rate))))
+        Self {
+            rate,
+            stft: Stft::new(n, CurveMask(curve_gains(&curve_points(p), n / 2 + 1, rate))),
+        }
     }
 }
 
 impl Processor for CurveEq {
     fn process(&mut self, buf: &mut [f32]) {
-        self.0.process(buf);
+        self.stft.process(buf);
     }
     fn latency(&self) -> usize {
-        self.0.latency()
+        self.stft.latency()
     }
     fn reset(&mut self) {
-        self.0.reset();
+        self.stft.reset();
+    }
+    /// The gains are worked out again in place; the spectrum's overlap
+    /// carries the change smoothly from one frame to the next.
+    fn update(&mut self, p: &Params) -> bool {
+        curve_gains_into(&curve_points(p), self.rate, &mut self.stft.mask.0);
+        true
     }
 }
 
@@ -553,33 +711,41 @@ pub fn center_info() -> EffectInfo {
 }
 
 pub struct CenterRemover {
-    amount: f32,
+    rate: u32,
+    amount: Glide,
     low: [StereoBiquad; 2],
 }
 
 impl CenterRemover {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let qs = butterworth_qs(2);
-        let f = p.get("keep_below");
-        Self {
-            amount: (p.get("amount") / 100.0) as f32,
-            low: [
-                StereoBiquad::new(Coeffs::new(Shape::LowPass, rate, f, qs[0], 0.0)),
-                StereoBiquad::new(Coeffs::new(Shape::LowPass, rate, f, qs[1], 0.0)),
-            ],
+        let mut me = Self {
+            rate,
+            amount: Glide::new(p.get("amount") / 100.0),
+            low: [StereoBiquad::new(Coeffs::FLAT); 2],
+        };
+        me.tune(p.get("keep_below"));
+        me
+    }
+
+    fn tune(&mut self, f: f64) {
+        for (k, s) in self.low.iter_mut().enumerate() {
+            let c = Coeffs::new(Shape::LowPass, self.rate, f, butterworth_q(2, k), 0.0);
+            s.l.set(c);
+            s.r.set(c);
         }
     }
 }
 
 impl Processor for CenterRemover {
     fn process(&mut self, buf: &mut [f32]) {
+        self.amount.begin(buf.len() / 2);
         for fr in buf.as_chunks_mut::<2>().0 {
             let (l, r) = (fr[0], fr[1]);
             let mid = (l + r) * 0.5;
             // The bass of the middle is kept, so kick and bass guitar stay.
             let first = self.low[0].l.run(mid);
             let keep = self.low[1].l.run(first);
-            let cut = (mid - keep) * self.amount;
+            let cut = (mid - keep) * self.amount.next() as f32;
             fr[0] = l - cut;
             fr[1] = r - cut;
         }
@@ -588,6 +754,11 @@ impl Processor for CenterRemover {
         for f in &mut self.low {
             f.reset();
         }
+    }
+    fn update(&mut self, p: &Params) -> bool {
+        self.amount.set(p.get("amount") / 100.0);
+        self.tune(p.get("keep_below"));
+        true
     }
 }
 
@@ -763,5 +934,88 @@ mod tests {
         assert!(level("altaudio.center_remover", &[], 1000.0) < -30.0);
         // A centered 50 Hz bass stays.
         assert!(level("altaudio.center_remover", &[], 50.0) > -3.0);
+    }
+
+    mod automation {
+        use super::super::super::glide::testing::*;
+
+        #[test]
+        fn every_filter_control_changes_in_place() {
+            for fx in [
+                "altaudio.band_eq_10",
+                "altaudio.band_eq_20",
+                "altaudio.band_eq_30",
+                "altaudio.notch",
+                "altaudio.curve_eq",
+                "altaudio.center_remover",
+            ] {
+                every_control_updates(fx, &[]);
+            }
+            every_control_updates("altaudio.precision_filter", &["mode", "order"]);
+        }
+
+        #[test]
+        fn precision_rebuilds_only_for_a_new_type_or_order() {
+            let fx = "altaudio.precision_filter";
+            let mut p = make(fx, &[]);
+            assert!(!p.update(&params(fx, &[("mode", 0.0)])));
+            assert!(!p.update(&params(fx, &[("order", 3.0)])));
+            for design in [0.0, 1.0, 2.0, 3.0] {
+                assert!(p.update(&params(fx, &[("design", design)])));
+            }
+        }
+
+        #[test]
+        fn filter_sweeps_keep_their_memory_and_end_where_built() {
+            sweep_matches_static("altaudio.band_eq_10", &[], "g06", (-15.0, 15.0), 1000.0);
+            sweep_matches_static("altaudio.band_eq_10", &[], "output", (0.0, -12.0), 1000.0);
+            sweep_matches_static(
+                "altaudio.notch",
+                &[("n1_on", 1.0), ("n1_depth", -40.0)],
+                "n1_freq",
+                (500.0, 3000.0),
+                2000.0,
+            );
+            for design in [0.0, 1.0, 2.0, 3.0] {
+                for mode in [0.0, 1.0] {
+                    sweep_matches_static(
+                        "altaudio.precision_filter",
+                        &[("design", design), ("mode", mode), ("order", 1.0)],
+                        "freq",
+                        (300.0, 3000.0),
+                        1500.0,
+                    );
+                }
+            }
+            sweep_matches_static(
+                "altaudio.precision_filter",
+                &[("mode", 2.0), ("freq2", 6000.0)],
+                "freq",
+                (200.0, 2000.0),
+                1000.0,
+            );
+            sweep_matches_static(
+                "altaudio.precision_filter",
+                &[("mode", 3.0), ("freq2", 6000.0)],
+                "freq",
+                (200.0, 1000.0),
+                1500.0,
+            );
+            sweep_matches_static("altaudio.curve_eq", &[], "p5_gain", (0.0, -12.0), 1500.0);
+            sweep_matches_static(
+                "altaudio.center_remover",
+                &[],
+                "amount",
+                (100.0, 0.0),
+                1000.0,
+            );
+            sweep_matches_static(
+                "altaudio.center_remover",
+                &[],
+                "keep_below",
+                (20.0, 500.0),
+                300.0,
+            );
+        }
     }
 }

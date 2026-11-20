@@ -19,14 +19,12 @@ use super::biquad::Coeffs;
 const STEPS: usize = 8;
 
 /// The descending Landen moduli of `k`.
-fn landen(mut k: f64) -> Vec<f64> {
-    (0..STEPS)
-        .map(|_| {
-            let kp = (1.0 - k * k).max(0.0).sqrt();
-            k = (k / (1.0 + kp)).powi(2);
-            k
-        })
-        .collect()
+fn landen(mut k: f64) -> [f64; STEPS] {
+    std::array::from_fn(|_| {
+        let kp = (1.0 - k * k).max(0.0).sqrt();
+        k = (k / (1.0 + kp)).powi(2);
+        k
+    })
 }
 
 /// cd(uK, k) for complex u (K the complete integral of `k`).
@@ -60,33 +58,42 @@ fn asne_imag(y: f64, k: f64) -> f64 {
     2.0 * w.asinh() / PI
 }
 
+/// Most second-order sections a design has (8th order).
+pub const MAX_SECTIONS: usize = 4;
+
 /// Analog low-pass prototype, passband edge at 1 rad/s: for each
-/// section, (zero frequency, pole frequency, pole Q), plus the passband
-/// ripple gain to apply.
-fn prototype(order: usize, ripple_db: f64, stop_db: f64) -> (Vec<(f64, f64, f64)>, f64) {
+/// section, (zero frequency, pole frequency, pole Q), written into
+/// `out`, plus the passband ripple gain to apply. Makes no lists, so it
+/// can run while audio plays.
+fn prototype(
+    order: usize,
+    ripple_db: f64,
+    stop_db: f64,
+    out: &mut [(f64, f64, f64); MAX_SECTIONS],
+) -> f64 {
     let ep = (10f64.powf(ripple_db / 10.0) - 1.0).sqrt();
     let es = (10f64.powf(stop_db / 10.0) - 1.0).sqrt();
     let k1 = ep / es;
     let k1p = (1.0 - k1 * k1).sqrt();
     let pairs = order / 2;
-    let us: Vec<f64> = (1..=pairs)
-        .map(|i| (2 * i - 1) as f64 / order as f64)
-        .collect();
+    let u = |i: usize| (2 * i - 1) as f64 / order as f64;
     // The degree equation: the selectivity k this order reaches.
-    let kp = k1p.powi(order as i32) * us.iter().map(|u| sne(*u, k1p)).product::<f64>().powi(4);
+    let mut prod = 1.0;
+    for i in 1..=pairs {
+        prod *= sne(u(i), k1p);
+    }
+    let kp = k1p.powi(order as i32) * prod.powi(4);
     let k = (1.0 - kp * kp).max(0.0).sqrt();
     let v0 = asne_imag(1.0 / ep, k1) / order as f64;
-    let sections = us
-        .iter()
-        .map(|&u| {
-            let zero = 1.0 / (k * cde(Complex64::new(u, 0.0), k).re);
-            let p = Complex64::new(0.0, 1.0) * cde(Complex64::new(u, -v0), k);
-            let w0 = p.norm();
-            (zero, w0, w0 / (-2.0 * p.re))
-        })
-        .collect();
+    for (i, s) in out.iter_mut().take(pairs).enumerate() {
+        let u = u(i + 1);
+        let zero = 1.0 / (k * cde(Complex64::new(u, 0.0), k).re);
+        let p = Complex64::new(0.0, 1.0) * cde(Complex64::new(u, -v0), k);
+        let w0 = p.norm();
+        *s = (zero, w0, w0 / (-2.0 * p.re));
+    }
     // Even orders start at the bottom of the ripple.
-    (sections, 1.0 / (1.0 + ep * ep).sqrt())
+    1.0 / (1.0 + ep * ep).sqrt()
 }
 
 /// An elliptic low-pass or high-pass at `freq` Hz (the passband edge).
@@ -98,38 +105,54 @@ pub fn elliptic(
     freq: f64,
     rate: u32,
 ) -> Vec<Coeffs> {
+    let mut out = [Coeffs::FLAT; MAX_SECTIONS];
+    let n = elliptic_into(high_pass, order, ripple_db, stop_db, freq, rate, &mut out);
+    out[..n].to_vec()
+}
+
+/// The same written into `out`, without making a list (for automation
+/// while audio plays). Returns how many sections it wrote.
+pub fn elliptic_into(
+    high_pass: bool,
+    order: usize,
+    ripple_db: f64,
+    stop_db: f64,
+    freq: f64,
+    rate: u32,
+    out: &mut [Coeffs; MAX_SECTIONS],
+) -> usize {
     let order = (order.clamp(2, 8) / 2) * 2;
     let r = f64::from(rate.max(1));
     let f = freq.clamp(1.0, r * 0.49);
     // Prewarp so the edge lands where asked after the bilinear transform.
     let wc = 2.0 * r * (PI * f / r).tan();
-    let (sections, ripple_gain) = prototype(
+    let mut sections = [(0.0, 0.0, 0.0); MAX_SECTIONS];
+    let ripple_gain = prototype(
         order,
         ripple_db.clamp(0.01, 3.0),
         stop_db.clamp(20.0, 120.0),
+        &mut sections,
     );
-    sections
-        .into_iter()
-        .enumerate()
-        .map(|(i, (wz, w0, q))| {
-            let (num, den) = if high_pass {
-                // s -> wc / s, times s^2.
-                ([wz * wz, 0.0, wc * wc], [w0 * w0, w0 * wc / q, wc * wc])
-            } else {
-                // s -> s / wc, times wc^2.
-                (
-                    [1.0, 0.0, wz * wz * wc * wc],
-                    [1.0, w0 * wc / q, w0 * w0 * wc * wc],
-                )
-            };
-            let c = Coeffs::bilinear(num, den, rate);
-            // Each section passes 0 dB in the passband (at DC, or at
-            // Nyquist for a high-pass); the first carries the ripple offset.
-            let at = if high_pass { r / 2.0 * 0.999 } else { 0.0 };
-            let g = 10f64.powf(-c.response_db(rate, at) / 20.0);
-            c.scaled(if i == 0 { g * ripple_gain } else { g })
-        })
-        .collect()
+    let pairs = order / 2;
+    for (i, (&(wz, w0, q), o)) in sections.iter().zip(out.iter_mut()).take(pairs).enumerate() {
+        let (num, den) = if high_pass {
+            // s -> wc / s, times s^2.
+            ([wz * wz, 0.0, wc * wc], [w0 * w0, w0 * wc / q, wc * wc])
+        } else {
+            // s -> s / wc, times wc^2.
+            (
+                [1.0, 0.0, wz * wz * wc * wc],
+                [1.0, w0 * wc / q, w0 * w0 * wc * wc],
+            )
+        };
+        let c = Coeffs::bilinear(num, den, rate);
+        // Each section passes 0 dB in the passband (at DC, or at
+        // Nyquist for a high-pass); the first carries the ripple offset.
+        let at = if high_pass { r / 2.0 * 0.999 } else { 0.0 };
+        let g = 10f64.powf(-c.response_db(rate, at) / 20.0);
+        *o = c.scaled(if i == 0 { g * ripple_gain } else { g });
+    }
+    pairs
 }
 
 #[cfg(test)]

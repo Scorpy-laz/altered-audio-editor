@@ -5,7 +5,7 @@
 //! Filter and EQ effects: Parametric EQ and Hum Cut.
 
 use super::{choice, num, toggle, EffectInfo, Params, Processor};
-use crate::dsp::biquad::{butterworth_qs, Coeffs, Shape, StereoBiquad};
+use crate::dsp::biquad::{Coeffs, Shape, StereoBiquad};
 
 const SLOPES: &[&str] = &["12 dB/oct", "24 dB/oct", "48 dB/oct"];
 
@@ -129,92 +129,194 @@ pub fn hum_info() -> EffectInfo {
     }
 }
 
-/// Up to 17 filters in series. Bands at 0 dB are left out.
+/// A filter that can be left out of the chain. A filter that joins
+/// starts from rest; one that leaves keeps nothing that matters.
+pub(crate) struct Stage {
+    f: StereoBiquad,
+    pub(crate) on: bool,
+}
+
+impl Stage {
+    pub(crate) fn off() -> Self {
+        Self {
+            f: StereoBiquad::new(Coeffs::FLAT),
+            on: false,
+        }
+    }
+
+    /// New coefficients, keeping the filter's memory while it stays on.
+    pub(crate) fn set(&mut self, c: Coeffs) {
+        if !self.on {
+            self.f.reset();
+            self.on = true;
+        }
+        self.f.l.set(c);
+        self.f.r.set(c);
+    }
+
+    pub(crate) fn process(&mut self, buf: &mut [f32]) {
+        if self.on {
+            self.f.process(buf);
+        }
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.f.reset();
+    }
+}
+
+/// Q of section `k` of a Butterworth cascade of `sections`, worked out
+/// the same way as `butterworth_qs` without making a list.
+pub(crate) fn butterworth_q(sections: usize, k: usize) -> f64 {
+    let n = (sections * 2) as f64;
+    1.0 / (2.0 * (std::f64::consts::PI * (2.0 * k as f64 + 1.0) / (2.0 * n)).sin())
+}
+
+const BANDS: [[&str; 3]; 3] = [
+    ["b1_freq", "b1_gain", "b1_q"],
+    ["b2_freq", "b2_gain", "b2_q"],
+    ["b3_freq", "b3_gain", "b3_q"],
+];
+
+/// High-pass (up to four sections), low shelf, three bands, high shelf
+/// and low-pass (up to four), in series. Bands and shelves at 0 dB are
+/// left out until they are first moved.
 pub struct ParametricEq {
-    filters: Vec<StereoBiquad>,
+    rate: u32,
+    hp: [Stage; 4],
+    ls: Stage,
+    bands: [Stage; 3],
+    hs: Stage,
+    lp: [Stage; 4],
 }
 
 impl ParametricEq {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let mut c: Vec<Coeffs> = Vec::new();
+        let mut me = Self {
+            rate,
+            hp: std::array::from_fn(|_| Stage::off()),
+            ls: Stage::off(),
+            bands: std::array::from_fn(|_| Stage::off()),
+            hs: Stage::off(),
+            lp: std::array::from_fn(|_| Stage::off()),
+        };
+        me.tune(p);
+        me
+    }
+
+    /// Sets every filter from `p`, keeping the memory of those that stay.
+    fn tune(&mut self, p: &Params) {
+        let rate = self.rate;
         let sections = |slope: usize| [1usize, 2, 4][slope.min(2)];
-        if p.on("hp_on") {
-            for q in butterworth_qs(sections(p.index("hp_slope"))) {
-                c.push(Coeffs::new(Shape::HighPass, rate, p.get("hp_freq"), q, 0.0));
+        let pass = |stages: &mut [Stage; 4], on: bool, shape: Shape, freq: f64, slope: usize| {
+            let n = if on { sections(slope) } else { 0 };
+            for (k, s) in stages.iter_mut().enumerate() {
+                if k < n {
+                    s.set(Coeffs::new(shape, rate, freq, butterworth_q(n, k), 0.0));
+                } else {
+                    s.on = false;
+                }
             }
-        }
+        };
+        pass(
+            &mut self.hp,
+            p.on("hp_on"),
+            Shape::HighPass,
+            p.get("hp_freq"),
+            p.index("hp_slope"),
+        );
+        // A band or shelf joins once its gain is off 0 dB and then stays,
+        // so a gain moving through 0 dB never restarts it.
         let gain = |k: &str| p.get(k).abs() > 1e-3;
-        if gain("ls_gain") {
-            c.push(Coeffs::new(
-                Shape::LowShelf,
-                rate,
-                p.get("ls_freq"),
-                1.0,
-                p.get("ls_gain"),
-            ));
-        }
-        for b in ["b1", "b2", "b3"] {
-            let g = format!("{b}_gain");
-            if gain(&g) {
-                c.push(Coeffs::new(
-                    Shape::Peak,
-                    rate,
-                    p.get(&format!("{b}_freq")),
-                    p.get(&format!("{b}_q")),
-                    p.get(&g),
-                ));
+        let boost = |s: &mut Stage, shape: Shape, freq: f64, q: f64, g: &str| {
+            if s.on || gain(g) {
+                s.set(Coeffs::new(shape, rate, freq, q, p.get(g)));
             }
+        };
+        boost(
+            &mut self.ls,
+            Shape::LowShelf,
+            p.get("ls_freq"),
+            1.0,
+            "ls_gain",
+        );
+        for (s, k) in self.bands.iter_mut().zip(BANDS) {
+            boost(s, Shape::Peak, p.get(k[0]), p.get(k[2]), k[1]);
         }
-        if gain("hs_gain") {
-            c.push(Coeffs::new(
-                Shape::HighShelf,
-                rate,
-                p.get("hs_freq"),
-                1.0,
-                p.get("hs_gain"),
-            ));
-        }
-        if p.on("lp_on") {
-            for q in butterworth_qs(sections(p.index("lp_slope"))) {
-                c.push(Coeffs::new(Shape::LowPass, rate, p.get("lp_freq"), q, 0.0));
-            }
-        }
-        Self {
-            filters: c.into_iter().map(StereoBiquad::new).collect(),
-        }
+        boost(
+            &mut self.hs,
+            Shape::HighShelf,
+            p.get("hs_freq"),
+            1.0,
+            "hs_gain",
+        );
+        pass(
+            &mut self.lp,
+            p.on("lp_on"),
+            Shape::LowPass,
+            p.get("lp_freq"),
+            p.index("lp_slope"),
+        );
+    }
+
+    fn stages(&mut self) -> impl Iterator<Item = &mut Stage> {
+        self.hp
+            .iter_mut()
+            .chain(std::iter::once(&mut self.ls))
+            .chain(self.bands.iter_mut())
+            .chain(std::iter::once(&mut self.hs))
+            .chain(self.lp.iter_mut())
     }
 }
 
 impl Processor for ParametricEq {
     fn process(&mut self, buf: &mut [f32]) {
-        for f in &mut self.filters {
-            f.process(buf);
+        for s in self.stages() {
+            s.process(buf);
         }
     }
     fn reset(&mut self) {
-        for f in &mut self.filters {
-            f.reset();
+        for s in self.stages() {
+            s.reset();
         }
+    }
+    fn update(&mut self, p: &Params) -> bool {
+        self.tune(p);
+        true
     }
 }
 
+/// Most overtones Hum Cut notches.
+const HARMONICS: usize = 10;
+
 /// Notches at the mains frequency and its overtones.
 pub struct HumCut {
-    filters: Vec<StereoBiquad>,
+    rate: u32,
+    filters: [Stage; HARMONICS],
 }
 
 impl HumCut {
     pub fn new(p: &Params, rate: u32) -> Self {
+        let mut me = Self {
+            rate,
+            filters: std::array::from_fn(|_| Stage::off()),
+        };
+        me.tune(p);
+        me
+    }
+
+    fn tune(&mut self, p: &Params) {
         let base = if p.index("mains") == 1 { 50.0 } else { 60.0 };
         let q = p.get("q");
-        let n = p.index("harmonics").max(1);
-        let nyquist = f64::from(rate) * 0.45;
-        Self {
-            filters: (1..=n)
-                .map(|k| base * k as f64)
-                .filter(|f| *f < nyquist)
-                .map(|f| StereoBiquad::new(Coeffs::new(Shape::Notch, rate, f, q, 0.0)))
-                .collect(),
+        let n = p.index("harmonics").clamp(1, HARMONICS);
+        let nyquist = f64::from(self.rate) * 0.45;
+        for (k, s) in self.filters.iter_mut().enumerate() {
+            let f = base * (k + 1) as f64;
+            if k < n && f < nyquist {
+                s.set(Coeffs::new(Shape::Notch, self.rate, f, q, 0.0));
+            } else {
+                s.on = false;
+            }
         }
     }
 }
@@ -229,6 +331,10 @@ impl Processor for HumCut {
         for f in &mut self.filters {
             f.reset();
         }
+    }
+    fn update(&mut self, p: &Params) -> bool {
+        self.tune(p);
+        true
     }
 }
 
@@ -275,5 +381,32 @@ mod tests {
         assert!(level(h, &[], 180.0) < -25.0);
         assert!(level(h, &[("mains", 1.0)], 100.0) < -25.0);
         assert!(level(h, &[], 1000.0).abs() < 0.3);
+    }
+
+    mod automation {
+        use super::super::super::glide::testing::*;
+
+        #[test]
+        fn every_eq_control_changes_in_place() {
+            every_control_updates("altaudio.parametric_eq", &[]);
+            every_control_updates("altaudio.hum_cut", &[]);
+        }
+
+        #[test]
+        fn filter_sweeps_keep_their_memory_and_end_where_built() {
+            let eq = "altaudio.parametric_eq";
+            sweep_matches_static(
+                eq,
+                &[("lp_on", 1.0)],
+                "lp_freq",
+                (20_000.0, 1_500.0),
+                3000.0,
+            );
+            sweep_matches_static(eq, &[("hp_on", 1.0)], "hp_freq", (10.0, 1_000.0), 400.0);
+            sweep_matches_static(eq, &[], "b2_gain", (-12.0, 12.0), 1000.0);
+            sweep_matches_static(eq, &[("b2_gain", 9.0)], "b2_freq", (200.0, 2000.0), 4000.0);
+            sweep_matches_static(eq, &[], "ls_gain", (0.0, -12.0), 60.0);
+            sweep_matches_static("altaudio.hum_cut", &[], "q", (60.0, 2.0), 125.0);
+        }
     }
 }
