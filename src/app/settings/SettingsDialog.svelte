@@ -386,7 +386,7 @@
             <legend>Playback</legend>
             <label><input type="checkbox" bind:checked={d.editor.followPlayhead} /> Scroll to follow the playhead</label>
             <label><input type="checkbox" bind:checked={d.app.playbackSpeed} /> Playback speed (experimental): adds Transport > Playback Speed, 0.5x to 2x with the pitch kept <span class="why">For listening and reviewing only; recording, exports and saved files are not affected. 0.5x and 2x sound smeared, the metronome is silent while it is not 1x, and it does not apply to 3D Space sessions heard on speakers. Back to 1x each time the program starts.</span></label>
-            <label><input type="checkbox" bind:checked={d.app.scrubAudio} /> Play audio while scrubbing <span class="why">Drag the playhead along the ruler to hear it. Approximate: playback restarts at the pointer every moment.</span></label>
+            <label><input type="checkbox" bind:checked={d.app.scrubAudio} /> Play audio while scrubbing <span class="why">Drag the playhead along the ruler to hear it like tape: slow and low, fast and high, or backwards, up to 4 times normal speed. Holding still goes quiet.</span></label>
           </fieldset>
           <fieldset>
             <legend>Meters turn yellow and red at</legend>

@@ -15,6 +15,7 @@
   import { KIND_COLORS, markerAt } from "../markers/markers";
   import { markerMenuItems } from "../markers/marker-menu";
   import { Scrubber } from "./scrubber";
+  import { scrubStart, scrubStop, scrubTo } from "../../app/core";
   import { followEffect } from "./follow";
   import type { ActionRegistry } from "../../app/actions";
   import ContextMenu, { type ContextItem } from "../../app/ContextMenu.svelte";
@@ -659,11 +660,12 @@
     const at = (ev: PointerEvent) => Math.max(0, Math.min(total, Math.round(sampleAt(Math.max(0, Math.min(width, xIn(ev, el))), view))));
     const wasPlaying = !!tp?.playing;
     // With Play audio while scrubbing on, the sound follows the drag; otherwise only the playhead does.
-    const scrub = new Scrubber(transport, settings.current.scrubAudio);
+    const scrub = new Scrubber(transport, { start: (p) => scrubStart("wave", p), to: scrubTo, stop: scrubStop }, settings.current.scrubAudio);
     const follow = (pos: number) => {
       if (wasPlaying) return;
-      if (scrub.active) scrub.move(pos);
-      else void transport.seek(pos);
+      // The playhead follows the pointer; with scrubbing on, the sound chases it too.
+      scrub.move(pos);
+      void transport.seek(pos);
     };
     let last = at(e);
     follow(last);

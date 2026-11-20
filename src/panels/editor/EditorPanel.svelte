@@ -70,6 +70,7 @@
   import { KIND_COLORS, markerAt, markerCss } from "../markers/markers";
   import { markerMenuItems } from "../markers/marker-menu";
   import { Scrubber } from "./scrubber";
+  import { scrubStart, scrubStop, scrubTo } from "../../app/core";
   import { followEffect } from "./follow";
   import { quiet, type MeterLevel, type TransportState, type TransportStore } from "../../stores/transport";
   import { channelNames } from "../space/space";
@@ -799,8 +800,8 @@
     if (cur?.view.selection) session.setView({ ...cur.view, selection: null });
     const at = (clientX: number) => Math.max(0, sampleAt(Math.max(0, Math.min(lanesWidth, clientX - left)), view));
     let last = at(e.clientX);
-    // With Play audio while scrubbing on, the sound follows the drag.
-    const scrub = new Scrubber(transport, settings.current.scrubAudio);
+    // With Play audio while scrubbing on, the sound follows the drag like tape.
+    const scrub = new Scrubber(transport, { start: (p) => scrubStart("session", p), to: scrubTo, stop: scrubStop }, settings.current.scrubAudio);
     scrub.move(last);
     // The line follows the pointer at once; the playhead itself moves once
     // a frame at most, and playback jumps there when the button is let go.

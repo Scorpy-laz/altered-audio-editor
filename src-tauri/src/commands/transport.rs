@@ -7,7 +7,7 @@
 use tauri::State;
 
 use super::session::OpenSession;
-use crate::engine::{Jump, PreviewPlayer, Transport, TransportStatus};
+use crate::engine::{Jump, PreviewPlayer, ScrubPlayer, Transport, TransportStatus};
 use crate::session::model::Session;
 
 /// How playback treats the time selection.
@@ -56,14 +56,67 @@ pub fn transport_play(
     preview: State<'_, PreviewPlayer>,
     open: State<'_, OpenSession>,
     playing: State<'_, super::wave::Playing>,
+    scrub: State<'_, ScrubPlayer>,
     from: Option<u64>,
     mode: Option<PlayMode>,
 ) -> Result<(), String> {
     preview.stop();
+    scrub.stop();
     playing.set(super::wave::PlayingDoc::Session);
     let s = open.0.lock().map_err(|e| e.to_string())?;
     let at = from.unwrap_or(s.session.view.playhead);
     transport.play(&s.session, at, jump_for(&s.session, mode))
+}
+
+/// Which document scrubbing plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScrubDoc {
+    Session,
+    Wave,
+}
+
+/// Starts scrubbing (dragging the playhead with sound) with the head
+/// resting at `from` (session samples). Only while playback is stopped.
+#[tauri::command]
+pub fn scrub_start(
+    scrub: State<'_, ScrubPlayer>,
+    transport: State<'_, Transport>,
+    preview: State<'_, PreviewPlayer>,
+    open: State<'_, OpenSession>,
+    wave: State<'_, super::wave::OpenWave>,
+    doc: ScrubDoc,
+    from: u64,
+) -> Result<(), String> {
+    if transport.is_playing() {
+        return Err("Scrubbing works while playback is stopped.".into());
+    }
+    preview.stop();
+    match doc {
+        ScrubDoc::Session => {
+            let s = open.0.lock().map_err(|e| e.to_string())?;
+            scrub.start(&s.session, from)
+        }
+        ScrubDoc::Wave => {
+            let w = wave.0.lock().map_err(|e| e.to_string())?;
+            let state = w
+                .as_ref()
+                .ok_or("No file is open in the Waveform editor.")?;
+            scrub.start(&state.session, from)
+        }
+    }
+}
+
+/// The pointer moved to `pos` (session samples) while scrubbing.
+#[tauri::command]
+pub fn scrub_to(scrub: State<'_, ScrubPlayer>, pos: u64) {
+    scrub.to(pos);
+}
+
+/// The drag ended: fades out and stops. Returns where the sound was.
+#[tauri::command]
+pub fn scrub_stop(scrub: State<'_, ScrubPlayer>) -> Option<u64> {
+    scrub.stop()
 }
 
 /// Stops and returns where playback was, in session samples.

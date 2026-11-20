@@ -20,9 +20,11 @@ pub mod record;
 pub mod render;
 pub mod reverse;
 pub mod scope;
+pub mod scrub;
 pub mod speed;
 pub mod transport;
 
 pub use preview::{PreviewPlayer, PreviewStatus};
 pub use record::{RecordStatus, RecordTarget, Recorder, Take};
+pub use scrub::ScrubPlayer;
 pub use transport::{Jump, Transport, TransportStatus};
