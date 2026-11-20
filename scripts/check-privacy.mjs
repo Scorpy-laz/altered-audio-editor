@@ -57,9 +57,40 @@ const crateBanned = /^\s*(reqwest|ureq|hyper|isahc|surf|attohttpc|curl|tauri-plu
 const cargo = readFileSync(join(root, "src-tauri", "Cargo.toml"), "utf8");
 const m = cargo.match(crateBanned);
 if (m) problems.push(`src-tauri/Cargo.toml: depends on ${m[1]}`);
+// The one exception: the assistant connection (Settings > Assistant, off by
+// default) listens on 127.0.0.1 and its stdio bridge connects to 127.0.0.1.
+// Only these two files may use sockets, and only on the loopback address:
+// every bind and connect must name Ipv4Addr::LOCALHOST, and nothing that
+// could reach another machine (other addresses, name lookups, UDP, IPv6
+// or "any" addresses) may appear in them.
+const LOOPBACK_ONLY = new Set(["src-tauri/src/mcp/server.rs", "src-tauri/src/mcp/bridge.rs"]);
 for (const f of walk(join(root, "src-tauri", "src"), [".rs"])) {
   const text = readFileSync(f, "utf8");
-  if (/std::net::|TcpStream|UdpSocket/.test(text)) problems.push(`${relative(root, f)}: opens network sockets`);
+  const rel = relative(root, f).replace(/\\/g, "/");
+  if (!/std::net::|TcpStream|TcpListener|UdpSocket/.test(text)) continue;
+  if (!LOOPBACK_ONLY.has(rel)) {
+    problems.push(`${rel}: opens network sockets`);
+    continue;
+  }
+  /** @type {[RegExp, string][]} */
+  const remote = [
+    [/UdpSocket/, "UDP"],
+    [/Ipv6Addr|UNSPECIFIED|0\.0\.0\.0|\[::\]/, "an address other than 127.0.0.1"],
+    [/ToSocketAddrs|to_socket_addrs|lookup_host|getaddrinfo/, "a host name lookup"],
+    [/\b(?!127\.0\.0\.1\b)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, "an IP address other than 127.0.0.1"],
+    [/TcpListener::bind\((?!\s*SocketAddrV4::new\(\s*Ipv4Addr::LOCALHOST\b)/, "a listener not bound to Ipv4Addr::LOCALHOST"],
+    [/TcpStream::connect\((?!\s*SocketAddrV4::new\(\s*Ipv4Addr::LOCALHOST\b)/, "a connection not made to Ipv4Addr::LOCALHOST"],
+  ];
+  for (const [re, what] of remote) {
+    if (re.test(text)) problems.push(`${rel}: the assistant connection may only use 127.0.0.1, but this file has ${what}`);
+  }
+  // connect_timeout takes an address built in the file: it must come from LOCALHOST.
+  for (const m of text.matchAll(/TcpStream::connect_timeout\(\s*&?\s*([\w.]+)/g)) {
+    const name = m[1] ?? "";
+    const built = new RegExp(`let\\s+${name.replace(/\./g, "\\.")}\\s*=\\s*SocketAddr::V4\\(\\s*SocketAddrV4::new\\(\\s*Ipv4Addr::LOCALHOST\\b`);
+    const fromListener = /^self\.addr$/.test(name) && /let addr = listener\.local_addr\(\)/.test(text);
+    if (!built.test(text) && !fromListener) problems.push(`${rel}: connect_timeout to ${name}, which is not built from Ipv4Addr::LOCALHOST`);
+  }
 }
 
 // The updater plugin is allowed for one purpose: reading the project's own
@@ -90,4 +121,4 @@ if (problems.length) {
   console.error("Privacy check failed. See PRIVACY.md.\n" + problems.map((p) => `  - ${p}`).join("\n"));
   process.exit(1);
 }
-console.log("Privacy check OK: no network, tracking or account code.");
+console.log("Privacy check OK: no network, tracking or account code (the assistant connection keeps to 127.0.0.1).");

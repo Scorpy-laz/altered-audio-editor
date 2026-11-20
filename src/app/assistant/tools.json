@@ -1,0 +1,359 @@
+{
+  "_comment": "The assistant (MCP) tools: names, descriptions and input schemas. Read by the core (tools/list, input checks) and by the interface (which tools exist). A string \"#shared:NAME\" stands for the schema under shared.NAME. edits: true means the tool changes the session or writes files, so it needs Allow changes on. timeoutSec is how long the core waits for the editor.",
+  "shared": {
+    "target": {
+      "type": "object",
+      "description": "Which Voice Chain or mixer strip: a track, a clip, a bus or the master.",
+      "properties": {
+        "kind": { "type": "string", "enum": ["track", "clip", "bus", "master"], "description": "track, clip, bus or master." },
+        "id": { "type": "string", "minLength": 1, "maxLength": 200, "description": "The id from get_session. For tracks and buses the exact name also works. Leave out for the master." }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "slot_id": { "type": "string", "minLength": 1, "maxLength": 200, "description": "The effect's slot_id from get_chain. Give slot_id or index." },
+    "index": { "type": "integer", "minimum": 0, "maximum": 15, "description": "The effect's place in the chain, 0 first, as get_chain lists it. Give slot_id or index." }
+  },
+  "tools": [
+    {
+      "name": "get_session",
+      "title": "Get session",
+      "edits": false,
+      "timeoutSec": 20,
+      "description": "Reads the open multitrack session: name, file, sample rate, length, whether it has unsaved changes, playhead, time selection, whether it is playing, every track (id, name, volume dB, pan, mute, solo, output, its Voice Chain effects and its clips with start and end times), bus tracks, the master and markers. All times are in seconds from the session start. Call this first to learn the ids other tools take.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "include_clips": { "type": "boolean", "description": "List each track's clips. Default true. Set false for a shorter answer on big sessions." }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_effects",
+      "title": "List effects",
+      "edits": false,
+      "timeoutSec": 20,
+      "description": "Lists the effects that can go in a Voice Chain: the built-in effects (id, name, group, what it does), installed VST3 plug-ins, and the Voice Chain presets (whole chains such as Podcast Voice). Give effect to get that one effect's controls (key, name, unit, min, max, default, step, choices) and its presets; use those keys with add_effect and set_effect_params.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "effect": { "type": "string", "minLength": 1, "maxLength": 200, "description": "An effect id (such as altaudio.limiter) or its exact name, to get its controls and presets." }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_chain",
+      "title": "Get Voice Chain",
+      "edits": false,
+      "timeoutSec": 20,
+      "description": "Reads one Voice Chain: whether it is on, its input and output gain, its dry/wet mix, and each effect in order with its slot_id, index, name, whether it is bypassed and every control's current value with its unit.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "target": "#shared:target" },
+        "required": ["target"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "add_effect",
+      "title": "Add effect",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Adds an effect to a Voice Chain as one undoable step. Controls left out keep their defaults; values are kept inside each control's range. A chain holds at most 16 effects.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": "#shared:target",
+          "effect": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Effect id from list_effects (such as altaudio.limiter) or its exact name." },
+          "index": { "type": "integer", "minimum": 0, "maximum": 15, "description": "Where in the chain to put it, 0 first. Default: the end." },
+          "params": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Control values by key, as list_effects gives them. On/off controls take 1 or 0; list controls take the choice's number." },
+          "preset": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Start from this preset of the effect (list_effects with effect lists them). params are applied on top." }
+        },
+        "required": ["target", "effect"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "remove_effect",
+      "title": "Remove effect",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Removes one effect from a Voice Chain as one undoable step.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "target": "#shared:target", "slot_id": "#shared:slot_id", "index": "#shared:index" },
+        "required": ["target"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_effect_params",
+      "title": "Set effect controls",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Changes one or more controls of an effect in a Voice Chain as one undoable step. Values outside a control's range are brought into range, and the answer says so.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": "#shared:target",
+          "slot_id": "#shared:slot_id",
+          "index": "#shared:index",
+          "params": { "type": "object", "additionalProperties": { "type": "number" }, "minProperties": 1, "description": "Control values by key, as get_chain or list_effects gives them." }
+        },
+        "required": ["target", "params"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "move_effect",
+      "title": "Move effect",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Moves an effect to another place in its Voice Chain as one undoable step. Effects run top to bottom, so order matters.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": "#shared:target",
+          "slot_id": "#shared:slot_id",
+          "index": "#shared:index",
+          "to_index": { "type": "integer", "minimum": 0, "maximum": 15, "description": "The new place, 0 first." }
+        },
+        "required": ["target", "to_index"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_effect_bypass",
+      "title": "Bypass effect",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Bypasses an effect (true: it passes the sound through untouched) or turns it back on (false), as one undoable step. Leave out slot_id and index to bypass or restore the whole Voice Chain.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": "#shared:target",
+          "slot_id": "#shared:slot_id",
+          "index": "#shared:index",
+          "bypass": { "type": "boolean", "description": "true bypasses, false turns it on." }
+        },
+        "required": ["target", "bypass"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "apply_chain_preset",
+      "title": "Apply Voice Chain preset",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Applies a Voice Chain preset by name (built-in or the person's saved ones; list_effects lists them) as one undoable step. A whole-chain preset replaces the chain; a single-effect preset adds its effect to the end.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": "#shared:target",
+          "preset": { "type": "string", "minLength": 1, "maxLength": 200, "description": "The preset's exact name, such as Podcast Voice." }
+        },
+        "required": ["target", "preset"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "transport",
+      "title": "Transport",
+      "edits": true,
+      "timeoutSec": 20,
+      "description": "Controls playback and the view: play (from the playhead, or from position_seconds), pause (stops where it is), stop (back to where playback started), seek (moves the playhead to position_seconds), set_selection (time selection from start_seconds to end_seconds) or clear_selection. These are not edits, so they are not in the undo history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["play", "pause", "stop", "seek", "set_selection", "clear_selection"] },
+          "position_seconds": { "type": "number", "minimum": 0, "description": "For play and seek." },
+          "start_seconds": { "type": "number", "minimum": 0, "description": "For set_selection." },
+          "end_seconds": { "type": "number", "minimum": 0, "description": "For set_selection." }
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_markers",
+      "title": "List markers",
+      "edits": false,
+      "timeoutSec": 20,
+      "description": "Lists the session's markers in time order: id, name, type, start and length in seconds, and notes.",
+      "inputSchema": { "type": "object", "additionalProperties": false }
+    },
+    {
+      "name": "add_marker",
+      "title": "Add marker",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Adds a marker as one undoable step. A length above 0 makes a range marker. Types: cue (a plain marker), chapter (a podcast chapter), ad_slot, social_clip, cd_track, cart_timer, subclip.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "position_seconds": { "type": "number", "minimum": 0 },
+          "duration_seconds": { "type": "number", "minimum": 0, "description": "0 or left out for a point marker." },
+          "name": { "type": "string", "maxLength": 200, "description": "Default: the next Marker N." },
+          "kind": { "type": "string", "enum": ["cue", "chapter", "ad_slot", "social_clip", "cd_track", "cart_timer", "subclip"], "description": "Default cue." },
+          "description": { "type": "string", "maxLength": 2000, "description": "Notes shown with the marker." }
+        },
+        "required": ["position_seconds"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "remove_marker",
+      "title": "Remove marker",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Removes markers by id (from list_markers) as one undoable step.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "marker_ids": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 500 }
+        },
+        "required": ["marker_ids"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_mix",
+      "title": "Set track mix",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Sets a track's or bus's volume (dB, -60 to +12), pan (-100 left to 100 right), mute and solo, or the master's volume, as one undoable step. Give only what should change.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": "#shared:target",
+          "volume_db": { "type": "number", "minimum": -60, "maximum": 12 },
+          "pan": { "type": "number", "minimum": -100, "maximum": 100 },
+          "mute": { "type": "boolean" },
+          "solo": { "type": "boolean" }
+        },
+        "required": ["target"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "measure_loudness",
+      "title": "Measure loudness",
+      "edits": false,
+      "timeoutSec": 900,
+      "description": "Measures the mix as an export would render it (every Voice Chain, fader and the master): integrated loudness (LUFS), loudness range (LU), true peak (dBTP) and the loudest short-term and momentary values. Measures the whole session, or start_seconds to end_seconds, or one track's stem. Can take a while on long sessions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "start_seconds": { "type": "number", "minimum": 0 },
+          "end_seconds": { "type": "number", "minimum": 0 },
+          "track": { "type": "string", "minLength": 1, "maxLength": 200, "description": "A track id or exact name to measure only that track." }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "export_mixdown",
+      "title": "Export mixdown",
+      "edits": true,
+      "timeoutSec": 1800,
+      "description": "Renders the session to an audio file, as File > Export > Mixdown does. The path must be absolute and end in the format's extension. An existing file is only replaced when overwrite is true. Optionally brings the mix to a loudness target with true peaks kept under a limit. Not an edit of the session, so not in the undo history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "minLength": 3, "maxLength": 1000, "description": "Absolute path of the new file, such as C:\\Users\\me\\Music\\episode.mp3." },
+          "format": { "type": "string", "enum": ["wav", "flac", "mp3", "m4a"], "description": "Default: from the path's extension. m4a needs Windows." },
+          "bit_depth": { "type": "integer", "enum": [16, 24, 32], "description": "WAV and FLAC. Default 24 (FLAC 24, WAV 32 is float)." },
+          "sample_rate": { "type": "integer", "minimum": 8000, "maximum": 192000, "description": "Default: the session's rate." },
+          "channels": { "type": "integer", "enum": [1, 2], "description": "Default: stereo." },
+          "mp3_bitrate": { "type": "integer", "enum": [64, 96, 128, 160, 192, 256, 320], "description": "MP3 kbps. Default 128." },
+          "loudness_lufs": { "type": "number", "minimum": -40, "maximum": -5, "description": "Bring the mix to this integrated loudness, such as -16 for a stereo podcast." },
+          "true_peak_db": { "type": "number", "minimum": -9, "maximum": 0, "description": "True peak limit with loudness_lufs. Default -1." },
+          "start_seconds": { "type": "number", "minimum": 0 },
+          "end_seconds": { "type": "number", "minimum": 0 },
+          "overwrite": { "type": "boolean", "description": "Replace an existing file. Default false." }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "save_session",
+      "title": "Save session",
+      "edits": true,
+      "timeoutSec": 120,
+      "description": "Saves the session to its file. Give path (absolute, ending in .altaudio) to save to a new file, which is needed when the session has never been saved. Not an edit, so not in the undo history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "minLength": 3, "maxLength": 1000, "description": "Absolute path ending in .altaudio. Leave out to save to the current file." }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "open_session",
+      "title": "Open session",
+      "edits": true,
+      "timeoutSec": 300,
+      "description": "Opens a saved session (.altaudio) by absolute path. The session in front stays open behind it with its unsaved changes and history, so nothing is lost. Ids from earlier get_session calls no longer apply afterwards.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "minLength": 3, "maxLength": 1000 }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "import_audio",
+      "title": "Import audio",
+      "edits": true,
+      "timeoutSec": 300,
+      "description": "Places audio files (absolute paths: WAV, AIFF, MP3, FLAC, M4A, OGG and more) on a track, one after another from position_seconds, as one undoable step. With no track, or new_track true, they go on a new track named after the first file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paths": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 1000 }, "minItems": 1, "maxItems": 50 },
+          "track": { "type": "string", "minLength": 1, "maxLength": 200, "description": "A track id or exact name." },
+          "new_track": { "type": "boolean", "description": "Put them on a new track. Default: true when track is left out." },
+          "position_seconds": { "type": "number", "minimum": 0, "description": "Default 0." }
+        },
+        "required": ["paths"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "undo",
+      "title": "Undo",
+      "edits": true,
+      "timeoutSec": 60,
+      "description": "Undoes the most recent step in the session's history, only when it was made by the assistant (its name starts with Assistant:). Steps the person made are never undone by the assistant.",
+      "inputSchema": { "type": "object", "additionalProperties": false }
+    },
+    {
+      "name": "redo",
+      "title": "Redo",
+      "edits": true,
+      "timeoutSec": 60,
+      "description": "Redoes the step undo last took back, only when it is an assistant step.",
+      "inputSchema": { "type": "object", "additionalProperties": false }
+    },
+    {
+      "name": "get_activity_log",
+      "title": "Activity log",
+      "edits": false,
+      "timeoutSec": 5,
+      "description": "Lists what the assistant has done in the editor since it started, newest last: time, tool, a short summary and whether it worked. The person sees the same list in the editor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 200, "description": "How many recent entries. Default 50." }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

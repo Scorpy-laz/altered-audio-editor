@@ -170,6 +170,17 @@ fn strip_secrets(bytes: &[u8]) -> Vec<u8> {
     bytes.to_vec()
 }
 
+/// A settings file with its secret top-level keys left out (a fresh token is made on restore).
+fn strip_top_level_secrets(bytes: &[u8]) -> Vec<u8> {
+    match serde_json::from_slice::<Value>(bytes) {
+        Ok(Value::Object(mut map)) => {
+            map.retain(|k, _| !is_secret_key(k));
+            serde_json::to_vec_pretty(&Value::Object(map)).unwrap_or_else(|_| bytes.to_vec())
+        }
+        _ => bytes.to_vec(),
+    }
+}
+
 /// A stable fingerprint (FNV-1a) of names and contents, to tell whether anything changed.
 fn signature(files: &[(String, Vec<u8>)]) -> String {
     let mut h: u64 = 0xcbf29ce484222325;
@@ -226,6 +237,9 @@ pub fn collect(config: &Path, include_secrets: bool) -> Vec<(String, Vec<u8>)> {
             let bytes = fs::read(&path).ok()?;
             let bytes = if !include_secrets && rel == "preferences.alprefs" {
                 strip_secrets(&bytes)
+            } else if !include_secrets && rel == crate::mcp::config::FILE {
+                // The assistant connection's token stays on this computer.
+                strip_top_level_secrets(&bytes)
             } else {
                 bytes
             };
@@ -579,6 +593,26 @@ mod tests {
         assert!(fs::read_to_string(back2.path().join("preferences.alprefs"))
             .unwrap()
             .contains("SECRET"));
+    }
+
+    #[test]
+    fn the_assistant_token_stays_out_of_backups() {
+        let c = tempfile::tempdir().unwrap();
+        fs::write(
+            c.path().join(crate::mcp::config::FILE),
+            r#"{"enabled":true,"port":47321,"token":"TOPSECRET","allowEdits":false}"#,
+        )
+        .unwrap();
+        let files = collect(c.path(), false);
+        let text = String::from_utf8(files[0].1.clone()).unwrap();
+        assert!(
+            text.contains("47321") && !text.contains("TOPSECRET"),
+            "{text}"
+        );
+        let with = collect(c.path(), true);
+        assert!(String::from_utf8(with[0].1.clone())
+            .unwrap()
+            .contains("TOPSECRET"));
     }
 
     #[test]
