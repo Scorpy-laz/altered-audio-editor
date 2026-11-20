@@ -90,6 +90,12 @@ describe("Effect presets", () => {
         points: [2, 8], knee: [0, 24], makeup: [-24, 24], detect_attack: [0.1, 200], detect_release: [5, 2000], rms: [0, 1],
         gain_attack: [0.1, 200], gain_release: [5, 2000], lookahead: [0, 20], ...curvePoints(),
       },
+      "altaudio.mastering": {
+        lc_on: [0, 1], lc_freq: [20, 200], ls_freq: [30, 800], ls_gain: [-12, 12], pk_freq: [100, 12000], pk_gain: [-12, 12], pk_q: [0.3, 6],
+        hs_freq: [1000, 20000], hs_gain: [-12, 12], rv_amount: [0, 100], ex_amount: [0, 100], ex_mode: [0, 2], width: [0, 200],
+        l_on: [0, 1], push: [0, 18], ceiling: [-6, 0], release: [10, 500], output: [-18, 0],
+      },
+      "altaudio.room-reverb": { size: [20, 200], decay: [0.2, 12], predelay: [0, 200], damping: [0, 100], width: [0, 100], mix: [0, 100] },
       "altaudio.plosive": { freq: [60, 250], trigger: [0, 24], reduction: [0, 30], release: [20, 400] },
       "altaudio.dynamics": { threshold: [-60, 0], ratio: [1, 20], attack: [0.1, 200], release: [5, 2000], knee: [0, 24], makeup: [0, 24] },
       "altaudio.limiter": { ceiling: [-24, 0], input_boost: [0, 24], lookahead: [0, 20], release: [10, 1000], linked: [0, 1] },
@@ -126,6 +132,21 @@ describe("Effect presets", () => {
         const names = presets.map((p) => p.name.toLowerCase());
         expect(new Set(names).size, effect).toBe(names.length);
         expect(names.every((n) => n.trim().length > 0 && n.length <= 60), effect).toBe(true);
+      }
+    });
+
+    it("lists every setting of a Mastering Suite or Room Reverb preset, so one fully replaces another", () => {
+      for (const effect of ["altaudio.mastering", "altaudio.room-reverb"]) {
+        const keys = Object.keys(ranges[effect]!).sort();
+        expect(BUILTIN_EFFECT_PRESETS[effect]!.length, effect).toBeGreaterThan(4);
+        for (const pr of BUILTIN_EFFECT_PRESETS[effect]!) expect(Object.keys(pr.params).sort(), pr.name).toEqual(keys);
+      }
+    });
+
+    it("keeps the Mastering Suite's limiter on in every preset, with the ceiling at or under -1 dBTP", () => {
+      for (const pr of BUILTIN_EFFECT_PRESETS["altaudio.mastering"]!) {
+        expect(pr.params.l_on, pr.name).toBe(1);
+        expect(pr.params.ceiling, pr.name).toBeLessThanOrEqual(-1);
       }
     });
 

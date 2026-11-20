@@ -50,6 +50,7 @@ pub fn run() {
         .manage(controllers::Controllers::default())
         .manage(engine::PreviewPlayer::default())
         .manage(engine::Transport::default())
+        .manage(engine::ScrubPlayer::default())
         .manage(engine::Recorder::default())
         .manage(commands::session::OpenSession::default())
         .manage(commands::export::ExportCancel::default())
@@ -133,6 +134,9 @@ pub fn run() {
             commands::preferences::preferences_load,
             commands::preferences::preferences_save,
             commands::transport::transport_play,
+            commands::transport::scrub_start,
+            commands::transport::scrub_to,
+            commands::transport::scrub_stop,
             commands::transport::transport_stop,
             commands::transport::transport_status,
             commands::transport::transport_set_mono_check,

@@ -285,7 +285,8 @@
   import AudioFxPanel from "../panels/audio-fx/AudioFxPanel.svelte";
   import SoundTypesPanel from "../panels/audio-fx/SoundTypesPanel.svelte";
   import VoiceChainPanel from "../panels/voice-chain/VoiceChainPanel.svelte";
-  import { addSlot, chainOf, newSlot, type MenuPlugin } from "../panels/voice-chain/chain";
+  import { addSlot, chainOf, MASTERING_PRESETS, newSlot, presetChain, type ChainPreset, type MenuPlugin } from "../panels/voice-chain/chain";
+  import { MASTER_ID } from "../panels/mixer/routing";
   import { effectSearch, vst3Items } from "../panels/voice-chain/slot-drag";
   import { effectWindowRequest, hideEffectWindows } from "../panels/voice-chain/effect-window";
   import { setFxCatalog } from "../panels/editor/envelope";
@@ -3150,6 +3151,7 @@
     "distortion",
     "channel-mixer",
     "stereo-expander",
+    "mastering",
   ];
   function fxTarget(): { target: EffectTarget; chain: EffectChainDoc | undefined; name: string; wave?: boolean } | null {
     if (inWave()) {
@@ -3214,6 +3216,49 @@
     effectWindowRequest.set(slot.id);
     showNotice(at.wave ? `Added ${info.name}. Save writes it into the file; bypass the chain to save without it.` : `Added ${info.name} to ${at.name}.`);
   }
+
+  /**
+   * Effects > Mastering: a mastering chain replaces the master's Voice Chain, or the Mastering
+   * Suite is added at its end. In the Waveform editor the file's preview chain takes it instead.
+   * One undoable step; the Voice Chain panel then shows the master.
+   */
+  async function masterWith(preset: ChainPreset | null) {
+    const d = session.current;
+    const w = inWave() ? wave.current?.tracks[0] : undefined;
+    if (inWave() ? !w : !d) return;
+    fxCatalog ??= await effectsCatalog();
+    const current = chainOf(inWave() ? w!.effects : d!.master?.effects);
+    let next: EffectChainDoc | null;
+    let openId: string | null = null;
+    let label: string;
+    if (preset) {
+      next = presetChain(preset, new Set(fxCatalog.map((e) => e.id)), uuid);
+      label = `Master Chain: ${preset.name.replace(/^Master: /, "")}`;
+    } else {
+      const info = fxCatalog.find((e) => e.id === "altaudio.mastering");
+      if (!info) return;
+      const slot = newSlot(info, uuid());
+      next = addSlot(current, slot);
+      openId = slot.id;
+      label = "Add Mastering Suite to the Master";
+      if (!next) {
+        showNotice("That Voice Chain is full: it holds 16 effects.");
+        return;
+      }
+    }
+    if (inWave()) {
+      await wave.apply({ op: "set_effects", target: { kind: "track", id: w!.id }, chain: next! });
+    } else {
+      await session.edit(label, { op: "set_effects", target: { kind: "master" }, chain: next! }, sessionHistory);
+      editor.selectTrack(MASTER_ID);
+    }
+    dock.show("voice-chain");
+    if (openId) effectWindowRequest.set(openId);
+    const where = inWave() ? "the preview chain (Save writes it into the file)" : "the master";
+    showNotice(preset ? `${preset.name.replace(/^Master: /, "")} is now on ${where}. Undo brings back the old chain. Check the result with Check Loudness.` : `Added the Mastering Suite to ${where}. Pick a preset in its window.`);
+  }
+  const MASTER_REASON = () => (inWave() ? "Open a file in the Waveform editor first." : "Open or create a session first.");
+  const canMaster = () => (inWave() ? !!wave.current?.tracks[0] : !!session.current);
 
   const waveIsOpen = () => inWave() && waveFile.current() !== null;
   const waveFocus = () => waveIsOpen() && currentArea() !== "files" && currentArea() !== "libraries";
@@ -5668,6 +5713,8 @@
           reason: () => (inWave() ? "Open a file in the Waveform editor first." : "Select a track or one clip first."),
         }),
       ),
+      actions.register({ id: "fx.mastering.suite-master", run: () => masterWith(null), enabled: canMaster, reason: MASTER_REASON }),
+      ...MASTERING_PRESETS.map((p, i) => actions.register({ id: `fx.mastering.chain.${i}`, run: () => masterWith(p), enabled: canMaster, reason: MASTER_REASON })),
       actions.register({
         id: "fx.match-eq",
         run: () => {

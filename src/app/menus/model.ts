@@ -10,6 +10,7 @@
  */
 
 import { PANELS } from "../docking/registry";
+import { MASTERING_PRESETS } from "../../panels/voice-chain/chain";
 
 export type MenuItem =
   | {
@@ -445,6 +446,12 @@ export const MENUS: readonly Menu[] = [
       item("fx.match-eq", "Match EQ..."),
       sep,
       item("fx.add.vox_strip", "Vox Strip (vocal chain)"),
+      sub("Mastering", [
+        item("fx.mastering.suite-master", "Mastering Suite on the Master"),
+        item("fx.add.mastering", "Mastering Suite on the Selected Track or Clip"),
+        sep,
+        ...MASTERING_PRESETS.map((p, i) => item(`fx.mastering.chain.${i}`, `${p.name.replace(/^Master: /, "")} (replace the master chain)`)),
+      ]),
       sortedSub("Delay and Reverb", [
         item("fx.add.echo", "Delay and Echo"),
         item("fx.add.convolution_reverb", "Convolution Reverb"),

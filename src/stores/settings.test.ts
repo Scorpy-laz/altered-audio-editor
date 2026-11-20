@@ -19,9 +19,9 @@ describe("app settings", () => {
     expect(s.returnOnStop).toBe(true);
     expect(sanitizeSettings({ returnOnStop: false }).returnOnStop).toBe(false);
     expect(sanitizeSettings({ returnOnStop: "no" }).returnOnStop).toBe(true);
-    expect(DEFAULT_SETTINGS.scrubAudio).toBe(false);
-    expect(sanitizeSettings({ scrubAudio: true }).scrubAudio).toBe(true);
-    expect(sanitizeSettings({ scrubAudio: "yes" }).scrubAudio).toBe(false);
+    expect(DEFAULT_SETTINGS.scrubAudio).toBe(true);
+    expect(sanitizeSettings({ scrubAudio: false }).scrubAudio).toBe(false);
+    expect(sanitizeSettings({ scrubAudio: "yes" }).scrubAudio).toBe(true);
     expect(sanitizeSettings({ musicMode: true }).musicMode).toBe(true);
     expect(sanitizeSettings({ ampModelAlways: true }).ampModelAlways).toBe(true);
     expect(sanitizeSettings({}).ampModelAlways).toBe(false);

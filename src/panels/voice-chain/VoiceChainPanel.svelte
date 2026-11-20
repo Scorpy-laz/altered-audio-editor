@@ -319,7 +319,7 @@
     if (!id) return;
     if (!chain.slots.some((x) => x.id === id) && !inWave) {
       if (clip?.effects?.slots.some((x) => x.id === id) && tab !== "clip") setTab("clip");
-      else if (track?.effects?.slots.some((x) => x.id === id) && tab !== "track") setTab("track");
+      else if ((track?.effects?.slots.some((x) => x.id === id) || doc?.master?.effects?.slots.some((x) => x.id === id)) && tab !== "track") setTab("track");
       else return;
     }
     effectWindowRequest.set(null);

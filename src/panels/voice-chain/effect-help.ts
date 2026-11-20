@@ -19,6 +19,8 @@ const HELP: Readonly<Record<string, string>> = {
     "Drag a node to move its band. Drag the small handles either side of a band, or use the mouse wheel over its node, to change its width (Q). Double-click HP or LP to switch them on or off.",
   "altaudio.shaped_noise":
     "Frequencies under the orange threshold are turned down. Drag a node to raise or lower the threshold around it, or pick it below to type its settings. The mouse wheel over a node changes its width; double-click switches it on or off.",
+  "altaudio.mastering":
+    "Put it last, on the master or a whole-mix track. Shape the tone with the EQ, add a little Reverb for depth, Exciter for warmth (Tube), softness (Tape) or air (Bright), and Width for a wider stereo picture. Then raise Push until it is loud enough: the limiter keeps every peak under the Ceiling. Check the result with Check Loudness.",
   [PHASE_CURVE]: "Drag a point; click empty space to add one (up to 8); double-click or right-click a point to remove it.",
 };
 

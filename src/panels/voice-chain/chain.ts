@@ -291,7 +291,7 @@ export const PRESET_INFO: Record<string, { category: "Podcast Voices" | "Charact
 
 /** True when choosing the preset adds one effect instead of replacing the chain. */
 export function addsOne(p: ChainPreset): boolean {
-  return p.chain.slots.length === 1 && p.group !== "Voice chains";
+  return p.chain.slots.length === 1 && p.group !== "Voice chains" && p.group !== "Mastering";
 }
 
 const base = { enabled: true, input_gain_db: 0, output_gain_db: 0, mix: 1 };
@@ -396,6 +396,115 @@ const hostChain = (gateThreshold: number) => [
   fx("limiter", { ceiling: -6, input_boost: 3, lookahead: 7, release: 100 }),
   fx("breath_gate", { threshold: gateThreshold, attack: 2, hold: 50, release: 200, range: -30 }),
 ];
+
+// --- Reverb, modulation and mastering presets ---
+
+/** A Room Reverb preset: size, decay, pre-delay, damping, width and mix, all listed. */
+const room = (size: number, decay: number, predelay: number, damping: number, width: number, mix: number) =>
+  fx("room-reverb", { size, decay, predelay, damping, width, mix });
+
+/**
+ * Spaces for Room Reverb, from small rooms to a cathedral, plus places for scenes in
+ * spoken-word drama. Each adds one effect. Our own settings, tuned by ear.
+ */
+export const REVERB_PRESETS: ChainPreset[] = [
+  chainP("Small Room", "Reverb", [room(45, 0.5, 4, 55, 70, 18)]),
+  chainP("Medium Room", "Reverb", [room(75, 0.9, 10, 45, 90, 22)]),
+  chainP("Large Room", "Reverb", [room(110, 1.6, 18, 40, 100, 25)]),
+  chainP("Concert Hall", "Reverb", [room(160, 2.8, 30, 35, 100, 28)]),
+  chainP("Bright Plate", "Reverb", [room(95, 2.0, 0, 10, 100, 24)]),
+  chainP("Cathedral", "Reverb", [room(200, 7.5, 45, 30, 100, 35)]),
+  chainP("Drama: Kitchen", "Reverb", [room(50, 0.6, 3, 20, 80, 20)]),
+  chainP("Drama: Bathroom", "Reverb", [room(35, 1.1, 2, 5, 60, 30)]),
+  chainP("Drama: Stairwell", "Reverb", [room(120, 3.2, 12, 15, 90, 30)]),
+  chainP("Drama: Inside a Car", "Reverb", [room(22, 0.25, 1, 70, 40, 15)]),
+  chainP("Drama: Cave", "Reverb", [room(180, 5.0, 60, 50, 100, 40)]),
+  chainP("Drama: Open Field", "Reverb", [room(200, 0.4, 70, 85, 100, 8)]),
+  chainP("Drama: Tape Echo Dream", "Reverb", [
+    fx("tape-delay", { time: 420, feedback: 55, tone: 2600, saturation: 40, wobble: 45, offset: 112, mix: 32 }),
+  ]),
+];
+
+/** Chorus, flanger, phaser and widening, each adding one effect. */
+const MODULATION_PRESETS: ChainPreset[] = [
+  chainP("Thicken Voice", "Modulation", [fx("chorus", { voices: 3, delay: 18, depth: 25, rate: 0.6, spread: 70, mix: 30 })]),
+  chainP("Ensemble", "Modulation", [fx("chorus", { voices: 6, delay: 25, depth: 45, rate: 0.9, spread: 100, mix: 45 })]),
+  chainP("Jet Sweep", "Modulation", [fx("flanger", { delay: 2, depth: 80, rate: 0.15, feedback: 70, phase: 90, mix: 50 })]),
+  chainP("Robot Metal", "Modulation", [fx("flanger", { delay: 0.5, depth: 5, rate: 0.05, feedback: 90, phase: 0, mix: 50 })]),
+  chainP("Slow Swirl", "Modulation", [fx("phaser", { stages: 6, center: 700, depth: 70, rate: 0.2 })]),
+  chainP("Wide Stereo", "Modulation", [fx("stereo-expander", { width: 160, center: 0, bass: 150 })]),
+];
+
+/** A Mastering Suite preset: every setting listed, so one fully replaces another. */
+export const masterSuite = (p: Record<string, number>): Record<string, number> => ({
+  lc_on: 0, lc_freq: 30,
+  ls_freq: 100, ls_gain: 0,
+  pk_freq: 1000, pk_gain: 0, pk_q: 1,
+  hs_freq: 8000, hs_gain: 0,
+  rv_amount: 0,
+  ex_amount: 0, ex_mode: 0,
+  width: 100,
+  l_on: 1, push: 0, ceiling: -1, release: 80,
+  output: 0,
+  ...p,
+});
+
+/** A limiter that keeps true peaks under `ceiling`, after `boost` dB of push. */
+const tpLimit = (ceiling: number, boost: number, release = 80) =>
+  fx("limiter", { ceiling, input_boost: boost, lookahead: 5, release, linked: 1, true_peak: 1 });
+/** A multiband compressor: one threshold and ratio for all three bands, and the splits. */
+const bands = (threshold: number, ratio: number, attack = 20, release = 200) =>
+  fx("multiband", {
+    low_freq: 180, high_freq: 4000,
+    low_threshold: threshold - 2, low_ratio: ratio, low_makeup: 0,
+    mid_threshold: threshold, mid_ratio: ratio, mid_makeup: 0,
+    high_threshold: threshold - 2, high_ratio: ratio, high_makeup: 0,
+    attack, release, output: 0,
+  });
+/** A tone EQ for mastering: low cut, a low shelf, a mud cut and a high shelf. */
+const masterEq = (hp: number, low: number, mud: number, air: number) =>
+  fx("parametric_eq", {
+    hp_on: hp > 0 ? 1 : 0, hp_freq: Math.max(hp, 20), hp_slope: 1,
+    ls_freq: 100, ls_gain: low,
+    b1_freq: 300, b1_gain: mud, b1_q: 1.2,
+    b2_freq: 1000, b2_gain: 0, b2_q: 1,
+    b3_freq: 4000, b3_gain: 0, b3_q: 1,
+    hs_freq: 10_000, hs_gain: air,
+    lp_on: 0, lp_freq: 18_000, lp_slope: 1,
+  });
+const warmth = (drive: number) => fx("tube_preamp", { input: 0, drive, low: 0, high: 0, transformer: 1, output: 0, mix: 100 });
+
+/**
+ * Mastering chains for the master (or a whole mix): tone EQ, multiband compression, warmth,
+ * then a true-peak limiter. They replace the chain. The loudness in a name is what the chain
+ * aims for with a typical mix going in; check the result with File > Check Loudness.
+ */
+export const MASTERING_PRESETS: ChainPreset[] = [
+  chainP("Master: Podcast, -16 LUFS Target", "Mastering", [masterEq(60, 1, -1.5, 1.5), bands(-24, 2), warmth(10), tpLimit(-1, 6)]),
+  chainP("Master: Audiobook", "Mastering", [masterEq(80, 0, -1.5, 1), bands(-26, 1.8, 25, 250), tpLimit(-3, 4, 120)]),
+  chainP("Master: Music Loud", "Mastering", [
+    masterEq(30, 2, -1, 2.5),
+    bands(-22, 3, 15, 150),
+    warmth(20),
+    fx("stereo-expander", { width: 120, center: 0, bass: 150 }),
+    tpLimit(-1, 10, 50),
+  ]),
+  chainP("Master: Gentle Polish", "Mastering", [masterEq(25, 1, 0, 1.5), bands(-18, 1.5, 30, 250), tpLimit(-1, 2, 120)]),
+  chainP("Master: Warm Tape", "Mastering", [masterEq(30, 2, 0, -1.5), warmth(45), bands(-20, 2), tpLimit(-1, 4, 100)]),
+  chainP("Master: Mastering Suite, Podcast", "Mastering", [
+    fx("mastering", masterSuite({ lc_on: 1, lc_freq: 70, ls_gain: 1, pk_freq: 300, pk_gain: -1.5, hs_freq: 9000, hs_gain: 2, ex_amount: 15, push: 6 })),
+  ]),
+];
+
+/** What each mastering chain is for, shown beside it in menus. */
+export const MASTERING_BLURBS: Record<string, string> = {
+  "Master: Podcast, -16 LUFS Target": "EQ, multiband, light warmth, limit -1 dBTP with 6 dB push",
+  "Master: Audiobook": "Clean EQ, gentle multiband, limit -3 dBTP",
+  "Master: Music Loud": "Fuller EQ, firm multiband, warmth, wider, limit -1 dBTP with 10 dB push",
+  "Master: Gentle Polish": "A little tone and glue, limit -1 dBTP",
+  "Master: Warm Tape": "Rounder top, tube warmth, glue, limit -1 dBTP",
+  "Master: Mastering Suite, Podcast": "The Mastering Suite in one slot, set for speech",
+};
 
 export const BUILTIN_PRESETS: ChainPreset[] = [
   trackOnly(
@@ -710,6 +819,9 @@ export const BUILTIN_PRESETS: ChainPreset[] = [
     ],
     {},
   ),
+  ...REVERB_PRESETS,
+  ...MODULATION_PRESETS,
+  ...MASTERING_PRESETS,
 ];
 
 /** The chain a preset gives, with fresh slot ids. Unknown effects are dropped. */

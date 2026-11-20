@@ -69,7 +69,7 @@ pub fn preamp_info() -> EffectInfo {
 /// signals. `k` is how hard it is driven (1 is clean), `bias` how lopsided
 /// (more even harmonics).
 #[inline]
-fn tube(x: f32, k: f32, bias: f32) -> f32 {
+pub(crate) fn tube(x: f32, k: f32, bias: f32) -> f32 {
     let a = k * (x + bias * x * x);
     let y = if a >= 0.0 {
         a.tanh()

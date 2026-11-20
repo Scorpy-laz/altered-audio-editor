@@ -222,7 +222,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   returnOnStop: true,
   takeLanes: true,
   playbackSpeed: false,
-  scrubAudio: false,
+  scrubAudio: true,
   ampModelAlways: false,
   updateCheck: false,
   lastUpdateCheck: 0,

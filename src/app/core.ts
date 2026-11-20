@@ -626,6 +626,21 @@ export function transportPlay(from?: number, mode: PlayMode = "normal"): Promise
   return invoke<void>("transport_play", { from: from ?? null, mode });
 }
 
+/** Starts scrubbing the open session ("session") or the Waveform editor's file ("wave"), resting at `from` (samples). */
+export function scrubStart(doc: "session" | "wave", from: number): Promise<void> {
+  return invoke<void>("scrub_start", { doc, from: Math.max(0, Math.round(from)) });
+}
+
+/** The pointer moved to `pos` (samples) while scrubbing; the sound chases it. */
+export function scrubTo(pos: number): Promise<void> {
+  return invoke<void>("scrub_to", { pos: Math.max(0, Math.round(pos)) });
+}
+
+/** Ends scrubbing with a short fade. Resolves to where the sound was, or null. */
+export function scrubStop(): Promise<number | null> {
+  return invoke<number | null>("scrub_stop");
+}
+
 /** Stops playback. Resolves to the position reached, or null if it was not playing. */
 export function transportStop(): Promise<number | null> {
   return invoke<number | null>("transport_stop");
