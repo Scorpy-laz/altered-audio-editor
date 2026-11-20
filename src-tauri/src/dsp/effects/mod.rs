@@ -535,6 +535,34 @@ pub fn is_active(chain: &EffectChain) -> bool {
 /// so a stage can be rebuilt when automation needs it.
 type SlotState = (Id, EffectInfo, BTreeMap<String, f64>, Option<String>);
 
+/// An automated setting that a stage cannot take in place is applied by
+/// rebuilding the stage, which loses its state (envelopes, tails, filter
+/// memory). Rebuilding on every automation step would wipe that state
+/// every few milliseconds, so while the setting keeps moving a stage is
+/// rebuilt at most this often...
+const REBUILD_GAP_MS: u32 = 250;
+/// ...and once the setting stops moving for this long, the last value is
+/// applied. A single jump after a quiet spell is applied at once.
+const REBUILD_SETTLE_MS: u32 = 40;
+
+/// A held-back rebuild for one stage.
+#[derive(Debug, Clone, Copy)]
+struct Rebuild {
+    waiting: bool,
+    /// Frames since the setting last moved.
+    since_change: usize,
+    /// Frames since the stage was last rebuilt.
+    since_build: usize,
+}
+
+impl Rebuild {
+    const IDLE: Rebuild = Rebuild {
+        waiting: false,
+        since_change: usize::MAX / 2,
+        since_build: usize::MAX / 2,
+    };
+}
+
 pub struct ChainProcessor {
     stages: Vec<Box<dyn Processor>>,
     /// Per stage: the track or bus keying it, and a delay that holds the
@@ -545,6 +573,8 @@ pub struct ChainProcessor {
     /// Per stage: its slot id, what it is and its current settings, so
     /// automation can change one setting while it plays.
     slots: Vec<SlotState>,
+    /// Per stage: a rebuild waiting for its setting to settle.
+    rebuilds: Vec<Rebuild>,
     rate: u32,
     input: f32,
     output: f32,
@@ -584,6 +614,7 @@ impl ChainProcessor {
         }
         let latency = stages.iter().map(|s| s.latency()).sum();
         Some(Self {
+            rebuilds: vec![Rebuild::IDLE; stages.len()],
             stages,
             keys,
             key_buf: Vec::new(),
@@ -611,20 +642,39 @@ impl ChainProcessor {
 
     /// Changes one setting of one effect while it plays (automation). An
     /// effect that cannot take it in place is rebuilt, unless that would
-    /// change the chain's look-ahead.
+    /// change the chain's look-ahead. While such a setting keeps moving,
+    /// the rebuild is held back (see [`REBUILD_GAP_MS`]).
     pub fn set_param(&mut self, slot: Id, key: &str, value: f64) {
         let Some(i) = self.slots.iter().position(|s| s.0 == slot) else {
             return;
         };
-        let (id, info, params, data) = &mut self.slots[i];
+        let (_, info, params, _) = &mut self.slots[i];
         if params.get(key).is_some_and(|v| (v - value).abs() < 1e-6) {
             return;
         }
         params.insert(key.to_string(), value);
         let p = Params::resolve(info, params);
         if self.stages[i].update(&p) {
+            // Every setting, including any held back, is now in place.
+            self.rebuilds[i].waiting = false;
             return;
         }
+        if self.rebuilds[i].since_build >= self.frames(REBUILD_GAP_MS) {
+            self.rebuild(i);
+        } else {
+            self.rebuilds[i].waiting = true;
+            self.rebuilds[i].since_change = 0;
+        }
+    }
+
+    fn frames(&self, ms: u32) -> usize {
+        (u64::from(self.rate) * u64::from(ms) / 1000) as usize
+    }
+
+    /// Builds stage `i` again from its current settings, if its look-ahead
+    /// stays the same.
+    fn rebuild(&mut self, i: usize) {
+        let (id, info, params, data) = &self.slots[i];
         let slot = EffectSlot {
             id: *id,
             effect: info.id.to_string(),
@@ -639,6 +689,26 @@ impl ChainProcessor {
         if let Some(fresh) = build(&slot, self.rate) {
             if fresh.latency() == self.stages[i].latency() {
                 self.stages[i] = fresh;
+            }
+        }
+        self.rebuilds[i] = Rebuild {
+            waiting: false,
+            since_change: self.rebuilds[i].since_change,
+            since_build: 0,
+        };
+    }
+
+    /// Moves the held-back rebuilds' clocks on by `frames`, and runs the
+    /// ones whose setting has settled or that have waited long enough.
+    fn tick_rebuilds(&mut self, frames: usize) {
+        let settle = self.frames(REBUILD_SETTLE_MS);
+        let gap = self.frames(REBUILD_GAP_MS);
+        for i in 0..self.rebuilds.len() {
+            let r = &mut self.rebuilds[i];
+            r.since_change = r.since_change.saturating_add(frames);
+            r.since_build = r.since_build.saturating_add(frames);
+            if r.waiting && (r.since_change >= settle || r.since_build >= gap) {
+                self.rebuild(i);
             }
         }
     }
@@ -666,6 +736,7 @@ impl ChainProcessor {
     /// Runs the chain with sidechain keys by source id, each as long as
     /// `buf`. A stage whose source has no key here listens to its input.
     pub fn process_keyed(&mut self, buf: &mut [f32], keys: &[(Id, &[f32])]) {
+        self.tick_rebuilds(buf.len() / 2);
         let blend = self.mix < 1.0;
         if blend {
             self.dry.clear();
@@ -907,6 +978,136 @@ mod tests {
         let mut buf = vec![0.3f32; frames * 2];
         p.process(&mut buf);
         assert!(buf[(1_500 + lat) * 2] > 0.29);
+    }
+
+    /// Controls a track or bus automation lane offers (the Editor's lane
+    /// picker and the assistant use the same rule): not hidden, not an
+    /// on/off or list control, and not one that moves the look-ahead.
+    fn glides(p: &ParamInfo) -> bool {
+        !p.hidden && !p.toggle && p.choices.is_empty() && !p.retimes
+    }
+
+    /// Effects and controls that cannot take a new value in place, with
+    /// the reason. A moving value rebuilds them, held back while it moves
+    /// (see `REBUILD_GAP_MS`). `"*"` stands for every control.
+    const REBUILDS_ON_MOVE: &[(&str, &str)] = &[
+        // The impulse length cuts the loaded response and re-partitions the
+        // convolver, which allocates; it stays a held-back rebuild.
+        ("altaudio.convolution_reverb", "length"),
+    ];
+
+    /// Every built-in effect takes every gliding control in place, keeping
+    /// its state, apart from the explicit list above.
+    #[test]
+    fn every_gliding_control_updates_in_place() {
+        let noise = seeded(4_800);
+        let mut failed = Vec::new();
+        let mut listed_but_fine = Vec::new();
+        for info in ui_catalog() {
+            for p in info.params.iter().filter(|p| glides(p)) {
+                let Some(mut fx) = build(&slot(info.id, &[]), 48_000) else {
+                    continue;
+                };
+                let latency = fx.latency();
+                let mut warm = noise.clone();
+                for c in warm.chunks_mut(2 * 256) {
+                    fx.process(c);
+                }
+                // A small move, as one automation step makes.
+                let nudge = ((p.max - p.min) * 0.01).max(1e-3);
+                let v = if p.default + nudge <= p.max {
+                    p.default + nudge
+                } else {
+                    p.default - nudge
+                };
+                let saved = [(p.key.to_string(), v)].into_iter().collect();
+                let ok = fx.update(&Params::resolve(&info, &saved));
+                let listed = REBUILDS_ON_MOVE
+                    .iter()
+                    .any(|(e, k)| *e == info.id && (*k == "*" || *k == p.key));
+                match (ok, listed) {
+                    (false, false) => failed.push(format!("{} {}", info.id, p.key)),
+                    (true, true) => listed_but_fine.push(format!("{} {}", info.id, p.key)),
+                    _ => {}
+                }
+                if ok {
+                    assert_eq!(fx.latency(), latency, "{} {}", info.id, p.key);
+                    let mut after = noise.clone();
+                    for c in after.chunks_mut(2 * 256) {
+                        fx.process(c);
+                    }
+                    assert!(
+                        after.iter().all(|s| s.is_finite()),
+                        "{} {} gave a non-finite sample",
+                        info.id,
+                        p.key
+                    );
+                }
+            }
+        }
+        assert!(
+            failed.is_empty(),
+            "rebuilt on every automation step: {failed:#?}"
+        );
+        // Keep the list honest: drop an entry once its effect learns to update.
+        assert!(
+            listed_but_fine.is_empty(),
+            "listed but update in place now: {listed_but_fine:#?}"
+        );
+    }
+
+    /// A stage that cannot take a moving setting in place is rebuilt at
+    /// most every `REBUILD_GAP_MS` while the setting moves, then once more
+    /// when it settles, not on every step.
+    #[test]
+    fn rebuilds_for_a_moving_setting_are_held_back() {
+        /// A stage that never takes a setting in place. A rebuild puts a
+        /// fresh Gain in its place, which is how the test counts them.
+        struct Stuck;
+        impl Processor for Stuck {
+            fn process(&mut self, _buf: &mut [f32]) {}
+            fn reset(&mut self) {}
+        }
+        let mut c = EffectChain::default();
+        let s = slot("altaudio.gain", &[]);
+        let id = s.id;
+        c.slots.push(s);
+        let mut chain = ChainProcessor::new(&c, 48_000).unwrap();
+        chain.stages[0] = Box::new(Stuck);
+        let gain = info("altaudio.gain").unwrap();
+        let mut rebuilds = 0;
+        // 1 when a fresh Gain took the stuck stage's place, which is put back.
+        let count = |chain: &mut ChainProcessor| {
+            let fresh = chain.stages[0].update(&Params::resolve(&gain, &chain.slots[0].2));
+            if fresh {
+                chain.stages[0] = Box::new(Stuck);
+            }
+            usize::from(fresh)
+        };
+        let mut buf = vec![0.25f32; 2 * 256];
+        // Most of a second of a ramp, one step per 256 frames as the engine sends.
+        for step in 0..170 {
+            chain.set_param(id, "gain", -12.0 + f64::from(step) * 0.05);
+            rebuilds += count(&mut chain);
+            chain.process(&mut buf);
+            rebuilds += count(&mut chain);
+        }
+        let during = rebuilds;
+        // The ramp stops; its last value comes in once it settles.
+        for _ in 0..20 {
+            chain.process(&mut buf);
+            rebuilds += count(&mut chain);
+        }
+        // One at once, then one every 250 ms: never one per step.
+        assert!((3..=5).contains(&during), "{during} rebuilds while moving");
+        assert_eq!(rebuilds, during + 1, "one more once it settled");
+        // And a lone jump after a quiet spell goes in at once.
+        for _ in 0..100 {
+            chain.process(&mut buf);
+        }
+        chain.set_param(id, "gain", 3.0);
+        rebuilds += count(&mut chain);
+        assert_eq!(rebuilds, during + 2);
     }
 
     #[test]
