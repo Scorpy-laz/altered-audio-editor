@@ -121,8 +121,22 @@ Times are in seconds from the session start. Ids come from `get_session`; tracks
 | `export_mixdown` | yes (not in History) | WAV, FLAC, MP3 or M4A, optional loudness target; never overwrites unless asked |
 | `save_session`, `open_session` | yes (not in History) | Save (or save to a new `.altaudio` file); open keeps the current session open behind |
 | `import_audio` | yes | Places audio files on a track, or a new track, from a time |
+| `split_clip` | yes | Cuts a clip at one or more times, or every clip on given tracks (or all tracks) at a time; returns the pieces' ids |
+| `delete_clips` | yes | Removes clips from the session, optionally closing the gaps (ripple). Audio files on disk are never touched |
+| `move_clip` | yes | New start time and/or another audio track for one clip |
+| `trim_clip` | yes | New left and/or right edge; the audio stays in place in time, edges stop at the ends of the file |
+| `set_clip_gain` | yes | Clip gain in dB and mute, for one or more clips |
+| `set_clip_fades` | yes | Fade in and out: length, shape and bend |
+| `set_clip_color` | yes | Palette color by name or number, any `#rrggbb`, or back to the track color |
+| `group_clips`, `ungroup_clips` | yes | Clip groups, as Clip > Group Clips |
+| `stretch_clip` | yes | Time stretch by length or ratio, keeping the pitch or letting it follow the speed, a pitch shift, or back to natural |
+| `get_automation` | no | A clip's envelopes or a track's or bus's lanes with their points, and every setting that can move there |
+| `set_automation` | yes | Writes points for volume, pan or an effect control on a clip, track or bus (replace a range, replace all, or add); switches the lane on so it plays |
+| `clear_automation` | yes | Removes points from one lane or all, over the whole time or a range |
 | `undo`, `redo` | yes | Only the assistant's own steps |
 | `get_activity_log` | no | What the assistant has done so far |
+
+Automation points are seconds from the session start for clips too (the editor stores clip envelopes from the clip's left edge and converts). Values are in the setting's own units: volume in dB from -60 (silent) to +12, pan from -100 (left) to 100 (right), an effect control in its own unit and range (`get_automation` lists them). Values move in straight lines between points and hold before the first and after the last. A clip's volume envelope works on top of its gain; a track's or bus's volume lane takes the fader's place while it plays. Track and bus lanes can move volume, pan and the gliding effect controls (not on/off or list controls); clip envelopes can also move on/off and list controls. The Master has no lanes.
 
 "Not in History" means the tool does not change the session's content (playing, exporting, saving), so there is nothing to undo. These still need Allow changes and are still in the activity log. Exports from an assistant skip the Export dialog, including its loudness pass/fail card; ask the assistant to run `measure_loudness` first, or use `loudness_lufs`.
 
