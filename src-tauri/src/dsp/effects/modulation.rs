@@ -9,6 +9,7 @@
 
 use std::f64::consts::TAU;
 
+use super::glide::Glide;
 use super::{num, EffectInfo, Params, Processor};
 
 /// The longest delay any of these needs, in seconds.
@@ -89,6 +90,11 @@ impl Lfo {
     fn advance(&mut self) {
         self.phase = (self.phase + self.step).fract();
     }
+
+    /// A new speed, carrying on from the same point in the cycle.
+    fn set_rate(&mut self, hz: f64, rate: f64) {
+        self.step = hz / rate;
+    }
 }
 
 /// One channel's delay line, read between frames.
@@ -135,49 +141,70 @@ pub struct Chorus {
     lines: [Line; 2],
     lfo: Lfo,
     voices: usize,
-    base: f64,
-    swing: f64,
-    spread: f64,
-    mix: f32,
+    base: Glide,
+    swing: Glide,
+    spread: Glide,
+    mix: Glide,
 }
 
 impl Chorus {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let delay = p.get("delay");
-        // The sweep can reach nearly the whole delay, never past it.
-        let swing = p.get("depth") / 100.0 * delay * 0.9;
+        let (base, swing) = Self::times(p);
         Self {
             rate: f64::from(rate),
             lines: [Line::new(rate), Line::new(rate)],
             lfo: Lfo::new(p.get("rate"), rate),
-            voices: p.get("voices").round().clamp(1.0, 6.0) as usize,
-            base: delay,
-            swing,
-            spread: p.get("spread") / 100.0,
-            mix: (p.get("mix") / 100.0) as f32,
+            voices: Self::voices(p),
+            base: Glide::new(base),
+            swing: Glide::new(swing),
+            spread: Glide::new(p.get("spread") / 100.0),
+            mix: Glide::new(p.get("mix") / 100.0),
         }
+    }
+
+    /// The middle delay and how far the sweep reaches, in ms.
+    fn times(p: &Params) -> (f64, f64) {
+        let delay = p.get("delay");
+        // The sweep can reach nearly the whole delay, never past it.
+        (delay, p.get("depth") / 100.0 * delay * 0.9)
+    }
+
+    fn voices(p: &Params) -> usize {
+        p.get("voices").round().clamp(1.0, 6.0) as usize
     }
 }
 
 impl Processor for Chorus {
     fn process(&mut self, buf: &mut [f32]) {
         let ms = self.rate / 1000.0;
+        let frames = buf.len() / 2;
+        for g in [
+            &mut self.base,
+            &mut self.swing,
+            &mut self.spread,
+            &mut self.mix,
+        ] {
+            g.begin(frames);
+        }
         for f in buf.as_chunks_mut::<2>().0 {
+            let (base, swing) = (self.base.next(), self.swing.next());
+            let spread = self.spread.next();
+            let mix = self.mix.next() as f32;
             let mut wet = [0f32; 2];
             for (c, w) in wet.iter_mut().enumerate() {
                 for v in 0..self.voices {
                     // Voices are spread around the cycle; the right side leads
                     // or lags the left by a quarter cycle at full spread.
-                    let off = v as f64 / self.voices as f64 + c as f64 * 0.25 * self.spread;
-                    let d = (self.base + self.swing * self.lfo.at(off)) * ms;
+                    let off = v as f64 / self.voices as f64 + c as f64 * 0.25 * spread;
+                    let d = (base + swing * self.lfo.at(off)) * ms;
                     *w += self.lines[c].read(d);
                 }
                 *w /= self.voices as f32;
             }
             self.lines[0].push(f[0]);
             self.lines[1].push(f[1]);
-            f[0] = f[0] * (1.0 - self.mix) + wet[0] * self.mix;
-            f[1] = f[1] * (1.0 - self.mix) + wet[1] * self.mix;
+            f[0] = f[0] * (1.0 - mix) + wet[0] * mix;
+            f[1] = f[1] * (1.0 - mix) + wet[1] * mix;
             self.lfo.advance();
         }
     }
@@ -187,6 +214,17 @@ impl Processor for Chorus {
             l.reset();
         }
         self.lfo.phase = 0.0;
+    }
+
+    fn update(&mut self, p: &Params) -> bool {
+        let (base, swing) = Self::times(p);
+        self.base.set(base);
+        self.swing.set(swing);
+        self.spread.set(p.get("spread") / 100.0);
+        self.mix.set(p.get("mix") / 100.0);
+        self.voices = Self::voices(p);
+        self.lfo.set_rate(p.get("rate"), self.rate);
+        true
     }
 }
 
@@ -196,43 +234,62 @@ pub struct Flanger {
     rate: f64,
     lines: [Line; 2],
     lfo: Lfo,
-    base: f64,
-    swing: f64,
-    feedback: f32,
-    offset: f64,
-    mix: f32,
+    base: Glide,
+    swing: Glide,
+    feedback: Glide,
+    offset: Glide,
+    mix: Glide,
 }
 
 impl Flanger {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let delay = p.get("delay");
+        let (base, swing) = Self::times(p);
         Self {
             rate: f64::from(rate),
             lines: [Line::new(rate), Line::new(rate)],
             lfo: Lfo::new(p.get("rate"), rate),
-            base: delay,
-            swing: p.get("depth") / 100.0 * (delay - 0.05).max(0.0),
-            feedback: (p.get("feedback") / 100.0) as f32,
-            offset: p.get("phase") / 360.0,
-            mix: (p.get("mix") / 100.0) as f32,
+            base: Glide::new(base),
+            swing: Glide::new(swing),
+            feedback: Glide::new(p.get("feedback") / 100.0),
+            offset: Glide::new(p.get("phase") / 360.0),
+            mix: Glide::new(p.get("mix") / 100.0),
         }
+    }
+
+    fn times(p: &Params) -> (f64, f64) {
+        let delay = p.get("delay");
+        (delay, p.get("depth") / 100.0 * (delay - 0.05).max(0.0))
     }
 }
 
 impl Processor for Flanger {
     fn process(&mut self, buf: &mut [f32]) {
         let ms = self.rate / 1000.0;
+        let frames = buf.len() / 2;
+        for g in [
+            &mut self.base,
+            &mut self.swing,
+            &mut self.feedback,
+            &mut self.offset,
+            &mut self.mix,
+        ] {
+            g.begin(frames);
+        }
         for f in buf.as_chunks_mut::<2>().0 {
+            let (base, swing) = (self.base.next(), self.swing.next());
+            let offset = self.offset.next();
+            let feedback = self.feedback.next() as f32;
+            let mix = self.mix.next() as f32;
             let mut wet = [0f32; 2];
             for (c, w) in wet.iter_mut().enumerate() {
-                let off = c as f64 * self.offset;
+                let off = c as f64 * offset;
                 // Sweep from the base delay down toward zero and back.
-                let d = (self.base - self.swing * (0.5 + 0.5 * self.lfo.at(off))) * ms;
+                let d = (base - swing * (0.5 + 0.5 * self.lfo.at(off))) * ms;
                 *w = self.lines[c].read(d.max(1.0));
             }
             for (c, x) in f.iter_mut().enumerate() {
-                self.lines[c].push(*x + self.feedback * wet[c]);
-                *x = *x * (1.0 - self.mix) + wet[c] * self.mix;
+                self.lines[c].push(*x + feedback * wet[c]);
+                *x = *x * (1.0 - mix) + wet[c] * mix;
             }
             self.lfo.advance();
         }
@@ -243,6 +300,17 @@ impl Processor for Flanger {
             l.reset();
         }
         self.lfo.phase = 0.0;
+    }
+
+    fn update(&mut self, p: &Params) -> bool {
+        let (base, swing) = Self::times(p);
+        self.base.set(base);
+        self.swing.set(swing);
+        self.feedback.set(p.get("feedback") / 100.0);
+        self.offset.set(p.get("phase") / 360.0);
+        self.mix.set(p.get("mix") / 100.0);
+        self.lfo.set_rate(p.get("rate"), self.rate);
+        true
     }
 }
 
@@ -269,11 +337,11 @@ pub struct Phaser {
     stages: usize,
     sections: [[Allpass; 12]; 2],
     lfo: Lfo,
-    center: f64,
-    depth: f64,
-    feedback: f32,
-    offset: f64,
-    mix: f32,
+    center: Glide,
+    depth: Glide,
+    feedback: Glide,
+    offset: Glide,
+    mix: Glide,
     coef: [f32; 2],
     fb: [f32; 2],
     count: u32,
@@ -283,18 +351,22 @@ impl Phaser {
     pub fn new(p: &Params, rate: u32) -> Self {
         Self {
             rate: f64::from(rate),
-            stages: (p.get("stages").round() as usize).clamp(2, 12),
+            stages: Self::stages(p),
             sections: [[Allpass::default(); 12]; 2],
             lfo: Lfo::new(p.get("rate"), rate),
-            center: p.get("center"),
-            depth: p.get("depth") / 100.0,
-            feedback: (p.get("feedback") / 100.0) as f32,
-            offset: p.get("phase") / 360.0,
-            mix: (p.get("mix") / 100.0) as f32,
+            center: Glide::new(p.get("center")),
+            depth: Glide::new(p.get("depth") / 100.0),
+            feedback: Glide::new(p.get("feedback") / 100.0),
+            offset: Glide::new(p.get("phase") / 360.0),
+            mix: Glide::new(p.get("mix") / 100.0),
             coef: [0.0; 2],
             fb: [0.0; 2],
             count: 0,
         }
+    }
+
+    fn stages(p: &Params) -> usize {
+        (p.get("stages").round() as usize).clamp(2, 12)
     }
 
     /// The all-pass coefficient for a corner frequency.
@@ -306,24 +378,38 @@ impl Phaser {
 
 impl Processor for Phaser {
     fn process(&mut self, buf: &mut [f32]) {
+        let frames = buf.len() / 2;
+        for g in [
+            &mut self.center,
+            &mut self.depth,
+            &mut self.feedback,
+            &mut self.offset,
+            &mut self.mix,
+        ] {
+            g.begin(frames);
+        }
         for f in buf.as_chunks_mut::<2>().0 {
+            let (center, depth, offset) =
+                (self.center.next(), self.depth.next(), self.offset.next());
+            let feedback = self.feedback.next() as f32;
+            let mix = self.mix.next() as f32;
             // The corner moves in octaves, so the sweep sounds even.
             if self.count == 0 {
                 for c in 0..2 {
-                    let l = self.lfo.at(c as f64 * self.offset);
-                    let hz = self.center * (self.depth * l * 2.0).exp2();
+                    let l = self.lfo.at(c as f64 * offset);
+                    let hz = center * (depth * l * 2.0).exp2();
                     self.coef[c] = self.coef_for(hz);
                 }
             }
             self.count = (self.count + 1) % 8;
             for (c, out) in f.iter_mut().enumerate() {
                 let dry = *out;
-                let mut x = dry + self.feedback * self.fb[c];
+                let mut x = dry + feedback * self.fb[c];
                 for s in &mut self.sections[c][..self.stages] {
                     x = s.run(x, self.coef[c]);
                 }
                 self.fb[c] = if x.abs() < 1e-20 { 0.0 } else { x };
-                *out = dry * (1.0 - self.mix) + x * self.mix;
+                *out = dry * (1.0 - mix) + x * mix;
             }
             self.lfo.advance();
         }
@@ -334,6 +420,26 @@ impl Processor for Phaser {
         self.fb = [0.0; 2];
         self.lfo.phase = 0.0;
         self.count = 0;
+    }
+
+    fn update(&mut self, p: &Params) -> bool {
+        let stages = Self::stages(p);
+        // Stages that join start from rest, not from old memory.
+        if stages > self.stages {
+            for side in &mut self.sections {
+                for s in &mut side[self.stages..stages] {
+                    *s = Allpass::default();
+                }
+            }
+        }
+        self.stages = stages;
+        self.center.set(p.get("center"));
+        self.depth.set(p.get("depth") / 100.0);
+        self.feedback.set(p.get("feedback") / 100.0);
+        self.offset.set(p.get("phase") / 360.0);
+        self.mix.set(p.get("mix") / 100.0);
+        self.lfo.set_rate(p.get("rate"), self.rate);
+        true
     }
 }
 
@@ -431,6 +537,60 @@ mod tests {
         for fx in ["altaudio.flanger", "altaudio.phaser"] {
             let out = run(fx, &[("feedback", 90.0)], vec![0.0; 2 * 48_000]);
             assert_eq!(peak(&out), 0.0, "{fx}");
+        }
+    }
+
+    mod automation {
+        use super::super::super::glide::testing::*;
+        use super::super::{Chorus, Flanger};
+        use crate::dsp::effects::Processor;
+
+        #[test]
+        fn every_modulation_control_changes_in_place() {
+            for fx in ["altaudio.chorus", "altaudio.flanger", "altaudio.phaser"] {
+                every_control_updates(fx, &[]);
+            }
+        }
+
+        #[test]
+        fn sweeping_delay_and_depth_stays_smooth_and_keeps_the_lines() {
+            for (fx, key, range) in [
+                ("altaudio.chorus", "delay", (5.0, 50.0)),
+                ("altaudio.chorus", "depth", (0.0, 100.0)),
+                ("altaudio.flanger", "delay", (0.1, 10.0)),
+                ("altaudio.flanger", "depth", (0.0, 100.0)),
+                ("altaudio.phaser", "center", (100.0, 4000.0)),
+                ("altaudio.phaser", "mix", (0.0, 100.0)),
+            ] {
+                let mut p = make(fx, &[("mix", 50.0)]);
+                let mut b = sine(220.0, RATE as usize);
+                ramp(&mut *p, fx, &[("mix", 50.0)], key, range, &mut b, 128);
+                assert!(b.iter().all(|s| s.is_finite()), "{fx} {key}");
+                // A 220 Hz sine at 0.5 moves at most 0.015 a frame; a sweep
+                // may add a little, but never a jump.
+                let step = largest_step(&b);
+                assert!(step < 0.2, "{fx} {key}: step {step}");
+                assert!(rms(&b[b.len() / 2..]) > 0.05, "{fx} {key}: not silenced");
+            }
+        }
+
+        #[test]
+        fn delay_lines_are_never_grown() {
+            let p = params("altaudio.chorus", &[]);
+            let mut c = Chorus::new(&p, RATE);
+            let before = c.lines[0].ring.as_ptr();
+            assert!(c.update(&params(
+                "altaudio.chorus",
+                &[("delay", 50.0), ("depth", 100.0)]
+            )));
+            c.process(&mut noise(4800, 1));
+            assert_eq!(c.lines[0].ring.as_ptr(), before);
+            let p = params("altaudio.flanger", &[]);
+            let mut f = Flanger::new(&p, RATE);
+            let before = f.lines[1].ring.as_ptr();
+            assert!(f.update(&params("altaudio.flanger", &[("delay", 10.0)])));
+            f.process(&mut noise(4800, 1));
+            assert_eq!(f.lines[1].ring.as_ptr(), before);
         }
     }
 }

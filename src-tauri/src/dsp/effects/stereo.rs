@@ -8,6 +8,7 @@
 
 use std::f64::consts::TAU;
 
+use super::glide::Glide;
 use super::{choice, num, toggle, EffectInfo, Params, Processor};
 
 const SHAPES: &[&str] = &["Soft clip", "Hard clip", "Tube", "Fold"];
@@ -59,44 +60,67 @@ pub fn distortion_info() -> EffectInfo {
     }
 }
 
-fn db(x: f64) -> f32 {
-    10f64.powf(x / 20.0) as f32
+/// Decibels as a gain, kept in f64 for gliding.
+fn dbf(x: f64) -> f64 {
+    10f64.powf(x / 20.0)
 }
 
 // --- Channel Mixer ---
 
 pub struct Mixer {
-    m: [[f32; 2]; 2],
+    m: [[Glide; 2]; 2],
 }
 
 impl Mixer {
     pub fn new(p: &Params) -> Self {
-        let g = |k: &str| (p.get(k) / 100.0) as f32;
+        Self {
+            m: Self::matrix(p).map(|row| row.map(Glide::new)),
+        }
+    }
+
+    /// The four gains, with an inverted output's row turned over.
+    fn matrix(p: &Params) -> [[f64; 2]; 2] {
+        let g = |k: &str| p.get(k) / 100.0;
         let sl = if p.on("invert_l") { -1.0 } else { 1.0 };
         let sr = if p.on("invert_r") { -1.0 } else { 1.0 };
-        Self {
-            m: [[g("ll") * sl, g("rl") * sl], [g("lr") * sr, g("rr") * sr]],
-        }
+        [[g("ll") * sl, g("rl") * sl], [g("lr") * sr, g("rr") * sr]]
     }
 }
 
 impl Processor for Mixer {
     fn process(&mut self, buf: &mut [f32]) {
+        let frames = buf.len() / 2;
+        for g in self.m.iter_mut().flatten() {
+            g.begin(frames);
+        }
         for f in buf.as_chunks_mut::<2>().0 {
             let (l, r) = (f[0], f[1]);
-            f[0] = l * self.m[0][0] + r * self.m[0][1];
-            f[1] = l * self.m[1][0] + r * self.m[1][1];
+            let [[a, b], [c, d]] = &mut self.m;
+            f[0] = l * a.next() as f32 + r * b.next() as f32;
+            f[1] = l * c.next() as f32 + r * d.next() as f32;
         }
     }
 
     fn reset(&mut self) {}
+
+    /// Gains move over a block; flipping a side's polarity sweeps through
+    /// silence instead of jumping.
+    fn update(&mut self, p: &Params) -> bool {
+        for (row, want) in self.m.iter_mut().zip(Self::matrix(p)) {
+            for (g, v) in row.iter_mut().zip(want) {
+                g.set(v);
+            }
+        }
+        true
+    }
 }
 
 // --- Stereo Expander ---
 
 pub struct Expander {
-    width: f32,
-    center: f32,
+    rate: u32,
+    width: Glide,
+    center: Glide,
     /// One-pole coefficient for the bass split; 0 turns the split off.
     coef: f32,
     low: f32,
@@ -104,24 +128,33 @@ pub struct Expander {
 
 impl Expander {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let hz = p.get("bass");
-        let coef = if hz < 1.0 {
-            0.0
-        } else {
-            (1.0 - (-TAU * hz / f64::from(rate)).exp()) as f32
-        };
         Self {
-            width: (p.get("width") / 100.0) as f32,
-            center: db(p.get("center")),
-            coef,
+            rate,
+            width: Glide::new(p.get("width") / 100.0),
+            center: Glide::new(dbf(p.get("center"))),
+            coef: split(p.get("bass"), rate),
             low: 0.0,
         }
     }
 }
 
+/// The bass split's one-pole coefficient; 0 below 1 Hz (off).
+fn split(hz: f64, rate: u32) -> f32 {
+    if hz < 1.0 {
+        0.0
+    } else {
+        (1.0 - (-TAU * hz / f64::from(rate)).exp()) as f32
+    }
+}
+
 impl Processor for Expander {
     fn process(&mut self, buf: &mut [f32]) {
+        let frames = buf.len() / 2;
+        self.width.begin(frames);
+        self.center.begin(frames);
         for f in buf.as_chunks_mut::<2>().0 {
+            let width = self.width.next() as f32;
+            let center = self.center.next() as f32;
             let mid = (f[0] + f[1]) * 0.5;
             let side = (f[0] - f[1]) * 0.5;
             // Only the side above the split is widened; the bass side
@@ -131,11 +164,11 @@ impl Processor for Expander {
                 if self.low.abs() < 1e-20 {
                     self.low = 0.0;
                 }
-                self.low + (side - self.low) * self.width
+                self.low + (side - self.low) * width
             } else {
-                side * self.width
+                side * width
             };
-            let mid = mid * self.center;
+            let mid = mid * center;
             f[0] = mid + side;
             f[1] = mid - side;
         }
@@ -144,15 +177,23 @@ impl Processor for Expander {
     fn reset(&mut self) {
         self.low = 0.0;
     }
+
+    fn update(&mut self, p: &Params) -> bool {
+        self.width.set(p.get("width") / 100.0);
+        self.center.set(dbf(p.get("center")));
+        self.coef = split(p.get("bass"), self.rate);
+        true
+    }
 }
 
 // --- Distortion ---
 
 pub struct Distortion {
+    rate: u32,
     shape: usize,
-    drive: f32,
-    out: f32,
-    mix: f32,
+    drive: Glide,
+    out: Glide,
+    mix: Glide,
     coef: f32,
     prev: [f32; 2],
     tone: [f32; 2],
@@ -185,25 +226,41 @@ pub(crate) fn shaped(shape: usize, x: f32) -> f32 {
 
 impl Distortion {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let hz = p.get("tone").min(f64::from(rate) * 0.45);
-        Self {
-            shape: p.index("shape").min(SHAPES.len() - 1),
-            drive: db(p.get("drive")),
-            out: db(p.get("output")),
-            mix: (p.get("mix") / 100.0) as f32,
-            coef: (1.0 - (-TAU * hz / f64::from(rate)).exp()) as f32,
+        let mut me = Self {
+            rate,
+            shape: 0,
+            drive: Glide::new(dbf(p.get("drive"))),
+            out: Glide::new(dbf(p.get("output"))),
+            mix: Glide::new(p.get("mix") / 100.0),
+            coef: 0.0,
             prev: [0.0; 2],
             tone: [0.0; 2],
-        }
+        };
+        me.voice(p);
+        me
+    }
+
+    /// Curve and tone, which hold no state of their own.
+    fn voice(&mut self, p: &Params) {
+        let hz = p.get("tone").min(f64::from(self.rate) * 0.45);
+        self.shape = p.index("shape").min(SHAPES.len() - 1);
+        self.coef = (1.0 - (-TAU * hz / f64::from(self.rate)).exp()) as f32;
     }
 }
 
 impl Processor for Distortion {
     fn process(&mut self, buf: &mut [f32]) {
+        let frames = buf.len() / 2;
+        self.drive.begin(frames);
+        self.out.begin(frames);
+        self.mix.begin(frames);
         for f in buf.as_chunks_mut::<2>().0 {
+            let drive = self.drive.next() as f32;
+            let out = self.out.next() as f32;
+            let mix = self.mix.next() as f32;
             for (c, s) in f.iter_mut().enumerate() {
                 let dry = *s;
-                let x = dry * self.drive;
+                let x = dry * drive;
                 // Run at twice the rate (a midpoint between frames) and
                 // average, which keeps the extra harmonics from folding
                 // back as harshly.
@@ -214,11 +271,11 @@ impl Processor for Distortion {
                 if self.tone[c].abs() < 1e-20 {
                     self.tone[c] = 0.0;
                 }
-                let wet = self.tone[c] * self.out;
-                *s = if self.mix >= 1.0 {
+                let wet = self.tone[c] * out;
+                *s = if mix >= 1.0 {
                     wet
                 } else {
-                    dry * (1.0 - self.mix) + wet * self.mix
+                    dry * (1.0 - mix) + wet * mix
                 };
             }
         }
@@ -227,6 +284,14 @@ impl Processor for Distortion {
     fn reset(&mut self) {
         self.prev = [0.0; 2];
         self.tone = [0.0; 2];
+    }
+
+    fn update(&mut self, p: &Params) -> bool {
+        self.drive.set(dbf(p.get("drive")));
+        self.out.set(dbf(p.get("output")));
+        self.mix.set(p.get("mix") / 100.0);
+        self.voice(p);
+        true
     }
 }
 
@@ -404,5 +469,52 @@ mod tests {
         );
         let third = |b: &[f32]| bin(&b[b.len() / 2..], 1500.0) / bin(&b[b.len() / 2..], 500.0);
         assert!(third(&hot) > third(&clean) * 5.0 && third(&hot) > 0.05);
+    }
+
+    mod automation {
+        use super::super::super::glide::testing::*;
+
+        #[test]
+        fn every_stereo_control_changes_in_place() {
+            for fx in [
+                "altaudio.channel-mixer",
+                "altaudio.stereo-expander",
+                "altaudio.distortion",
+            ] {
+                every_control_updates(fx, &[]);
+            }
+        }
+
+        #[test]
+        fn gains_glide_instead_of_stepping() {
+            for (fx, key, range) in [
+                ("altaudio.channel-mixer", "ll", (100.0, -100.0)),
+                ("altaudio.stereo-expander", "width", (0.0, 300.0)),
+                ("altaudio.distortion", "mix", (0.0, 100.0)),
+                ("altaudio.distortion", "tone", (500.0, 20000.0)),
+            ] {
+                let mut p = make(fx, &[("drive", 0.0), ("output", 0.0)]);
+                let mut b = sine(110.0, RATE as usize / 2);
+                ramp(
+                    &mut *p,
+                    fx,
+                    &[("drive", 0.0), ("output", 0.0)],
+                    key,
+                    range,
+                    &mut b,
+                    64,
+                );
+                assert!(b.iter().all(|s| s.is_finite()));
+                let step = largest_step(&b);
+                assert!(step < 0.05, "{fx} {key}: step {step}");
+            }
+            // Flipping a side's polarity sweeps through silence.
+            let mut p = make("altaudio.channel-mixer", &[]);
+            let mut b = vec![0.5f32; 2 * 256];
+            assert!(p.update(&params("altaudio.channel-mixer", &[("invert_r", 1.0)])));
+            p.process(&mut b);
+            assert!((b[1] - 0.5).abs() < 0.01 && (b[511] + 0.5).abs() < 1e-6);
+            assert!(largest_step(&b) < 0.01);
+        }
     }
 }

@@ -23,6 +23,7 @@ mod eq;
 mod expander;
 mod filters;
 mod gapfill;
+mod glide;
 pub mod mastering;
 mod modulation;
 mod phase;
