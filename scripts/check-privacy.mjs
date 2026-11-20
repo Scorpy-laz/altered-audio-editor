@@ -99,7 +99,7 @@ for (const f of walk(join(root, "src-tauri", "src"), [".rs"])) {
 // must keep a public key so only our signed installers are accepted.
 const confText = readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8");
 const updater = JSON.parse(confText)?.plugins?.updater;
-const OWN_RELEASES = /^https:\/\/github\.com\/geekcastradio\/altered-audio-editor\/releases\//;
+const OWN_RELEASES = /^https:\/\/github\.com\/Scorpy-laz\/altered-audio-editor\/releases\//;
 if (updater) {
   const ends = Array.isArray(updater.endpoints) ? updater.endpoints : [];
   if (ends.length === 0 || !ends.every((/** @type {string} */ e) => OWN_RELEASES.test(e))) {
