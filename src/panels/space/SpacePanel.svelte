@@ -483,7 +483,7 @@
   .bar .toggle.on {
     background: var(--accent-dim);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
   }
   .primary {
     justify-self: start;

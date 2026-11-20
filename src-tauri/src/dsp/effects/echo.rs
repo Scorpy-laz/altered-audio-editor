@@ -24,7 +24,7 @@ pub fn echo_info() -> EffectInfo {
     EffectInfo {
         id: "altaudio.echo",
         name: "Delay and Echo",
-        category: "Time and Pitch",
+        category: "Delay and Reverb",
         description: "Repeats the sound after a set time, each repeat quieter than the last. Tone darkens the repeats, and Ping-pong bounces them between left and right.",
         params: vec![
             num("time", "Delay time", "ms", 1.0, 2000.0, 350.0, 1.0).log(),

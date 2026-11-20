@@ -358,10 +358,12 @@ pub fn wave_play(
     transport: State<'_, Transport>,
     preview: State<'_, PreviewPlayer>,
     playing: State<'_, Playing>,
+    scrub: State<'_, crate::engine::ScrubPlayer>,
     from: Option<u64>,
     mode: Option<super::transport::PlayMode>,
 ) -> Result<(), String> {
     preview.stop();
+    scrub.stop();
     let w = wave.0.lock().map_err(|e| e.to_string())?;
     let state = w
         .as_ref()

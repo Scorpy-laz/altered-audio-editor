@@ -10,11 +10,13 @@
 -->
 <script lang="ts">
   import { settings, wheelAnchorX, zoomRatios } from "../../stores/settings";
+  import { cssVar, themeTick } from "../../app/theme";
   import ColorPairPopover from "../../app/ColorPairPopover.svelte";
   import { SPECTRUM_HIGH, SPECTRUM_LOW } from "../../app/colors";
   import { KIND_COLORS, markerAt } from "../markers/markers";
   import { markerMenuItems } from "../markers/marker-menu";
   import { Scrubber } from "./scrubber";
+  import { scrubStart, scrubStop, scrubTo } from "../../app/core";
   import { followEffect } from "./follow";
   import type { ActionRegistry } from "../../app/actions";
   import ContextMenu, { type ContextItem } from "../../app/ContextMenu.svelte";
@@ -279,8 +281,9 @@
       .finally(() => asking.delete(key));
   }
 
+  /** A theme color, cached until the surface or a color setting changes. */
   function css(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return cssVar(name);
   }
 
   /** dB marks on the level scale. */
@@ -290,6 +293,7 @@
   $effect(() => {
     void peakTick;
     void live?.tick;
+    void $themeTick;
     const c = canvas;
     if (!c || !doc) return;
     const dpr = window.devicePixelRatio || 1;
@@ -308,7 +312,7 @@
     const previewB = sized ? (selection?.end ?? Infinity) : Infinity;
     const previewAt = (pos: number) => (previewK !== 1 && pos >= previewA && pos < previewB ? previewK : 1);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = css("--surface-0");
+    g.fillStyle = css("--wave-bg");
     g.fillRect(0, 0, w + SCALE_W, h);
     const laneH = h / channels;
     const media = new Map(doc.media.map((m) => [m.id, m]));
@@ -319,7 +323,7 @@
       const mid = top + laneH / 2;
       const half = laneH / 2 - 2;
       // Level grid.
-      g.strokeStyle = "rgba(255, 255, 255, 0.06)";
+      g.strokeStyle = css("--grid-line");
       g.lineWidth = 1;
       for (const db of MARKS) {
         const a = 10 ** (db / 20) * ampZoom;
@@ -331,7 +335,7 @@
           g.stroke();
         }
       }
-      g.strokeStyle = "rgba(255, 255, 255, 0.18)";
+      g.strokeStyle = css("--grid-line-strong");
       g.beginPath();
       g.moveTo(0, Math.round(mid) + 0.5);
       g.lineTo(w, Math.round(mid) + 0.5);
@@ -343,7 +347,7 @@
     }
 
     // Time grid at the ruler's labeled ticks.
-    g.strokeStyle = "rgba(255, 255, 255, 0.05)";
+    g.strokeStyle = css("--grid-line");
     g.lineWidth = 1;
     for (const t of ticksFor(view, w, rate, ed.timeFormat)) {
       if (!t.label) continue;
@@ -444,7 +448,7 @@
       const x1 = Math.min(w, Math.ceil(xOf(live.at + len, view)));
       if (x1 > x0) {
         // The new take lies over what is there until Stop; hide it so the take reads alone.
-        g.fillStyle = css("--surface-0") || "#111";
+        g.fillStyle = css("--wave-bg");
         g.fillRect(x0, 0, x1 - x0, h);
         const framesPerPx = (view.spp * srcRate) / rate;
         const level = lw.levelFor(framesPerPx);
@@ -470,7 +474,7 @@
     // Past the end of the file.
     const endX = xOf(total, view);
     if (endX < w) {
-      g.fillStyle = "rgba(0, 0, 0, 0.35)";
+      g.fillStyle = css("--past-end");
       g.fillRect(Math.max(0, endX), 0, w - Math.max(0, endX), h);
     }
 
@@ -479,7 +483,7 @@
       const a = Math.max(0, xOf(selection.start, view));
       const b = Math.min(w, xOf(selection.end, view));
       if (b > a) {
-        g.fillStyle = "rgba(255, 255, 255, 0.14)";
+        g.fillStyle = css("--wave-sel-wash");
         g.fillRect(a, 0, b - a, h);
       }
     }
@@ -538,6 +542,7 @@
   // Ruler.
   $effect(() => {
     void peakTick;
+    void $themeTick;
     const c = ruler;
     if (!c || !doc) return;
     const dpr = window.devicePixelRatio || 1;
@@ -567,7 +572,7 @@
       const a = Math.max(0, xOf(selection.start, view));
       const b = Math.min(w, xOf(selection.end, view));
       if (b > a) {
-        g.fillStyle = "rgba(255, 255, 255, 0.16)";
+        g.fillStyle = css("--sel-wash");
         g.fillRect(a, 0, b - a, RULER_H);
       }
     }
@@ -659,11 +664,12 @@
     const at = (ev: PointerEvent) => Math.max(0, Math.min(total, Math.round(sampleAt(Math.max(0, Math.min(width, xIn(ev, el))), view))));
     const wasPlaying = !!tp?.playing;
     // With Play audio while scrubbing on, the sound follows the drag; otherwise only the playhead does.
-    const scrub = new Scrubber(transport, settings.current.scrubAudio);
+    const scrub = new Scrubber(transport, { start: (p) => scrubStart("wave", p), to: scrubTo, stop: scrubStop }, settings.current.scrubAudio);
     const follow = (pos: number) => {
       if (wasPlaying) return;
-      if (scrub.active) scrub.move(pos);
-      else void transport.seek(pos);
+      // The playhead follows the pointer; with scrubbing on, the sound chases it too.
+      scrub.move(pos);
+      void transport.seek(pos);
     };
     let last = at(e);
     follow(last);
@@ -1057,7 +1063,7 @@
   .chdim {
     position: absolute;
     left: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--veil);
     pointer-events: none;
   }
   .chbtn {
@@ -1068,7 +1074,7 @@
     padding: 0 2px;
     border: 1px solid var(--border-strong);
     border-radius: 2px;
-    background: var(--surface-1, #111);
+    background: var(--surface-1);
     color: var(--text-faint);
     font: inherit;
     font-size: 10px;

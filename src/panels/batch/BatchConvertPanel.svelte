@@ -621,7 +621,7 @@
   }
 
   .row.done .status {
-    color: var(--ok, #5fbf8f);
+    color: var(--ok);
   }
 
   .row.bad .status {
@@ -684,7 +684,7 @@
   footer button.primary {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
 
   button:not(.tool) {
@@ -700,7 +700,7 @@
   button.primary {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--accent-text, #fff);
+    color: var(--on-accent);
   }
 
   button:disabled {

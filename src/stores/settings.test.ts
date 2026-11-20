@@ -19,9 +19,9 @@ describe("app settings", () => {
     expect(s.returnOnStop).toBe(true);
     expect(sanitizeSettings({ returnOnStop: false }).returnOnStop).toBe(false);
     expect(sanitizeSettings({ returnOnStop: "no" }).returnOnStop).toBe(true);
-    expect(DEFAULT_SETTINGS.scrubAudio).toBe(false);
-    expect(sanitizeSettings({ scrubAudio: true }).scrubAudio).toBe(true);
-    expect(sanitizeSettings({ scrubAudio: "yes" }).scrubAudio).toBe(false);
+    expect(DEFAULT_SETTINGS.scrubAudio).toBe(true);
+    expect(sanitizeSettings({ scrubAudio: false }).scrubAudio).toBe(false);
+    expect(sanitizeSettings({ scrubAudio: "yes" }).scrubAudio).toBe(true);
     expect(sanitizeSettings({ musicMode: true }).musicMode).toBe(true);
     expect(sanitizeSettings({ ampModelAlways: true }).ampModelAlways).toBe(true);
     expect(sanitizeSettings({}).ampModelAlways).toBe(false);
@@ -47,6 +47,16 @@ describe("app settings", () => {
     expect(seen).toBe(40);
     off();
     settings.set(DEFAULT_SETTINGS);
+  });
+
+  it("starts on the Light surface and keeps Standard and Classic", () => {
+    expect(DEFAULT_SETTINGS.surface).toBe("light");
+    expect(sanitizeSettings({}).surface).toBe("light");
+    expect(sanitizeSettings({ surface: "standard" }).surface).toBe("standard");
+    expect(sanitizeSettings({ surface: "classic" }).surface).toBe("classic");
+    expect(sanitizeSettings({ surface: "light" }).surface).toBe("light");
+    expect(sanitizeSettings({ surface: "neon" }).surface).toBe("light");
+    expect(sanitizeSettings({ surface: 3 }).surface).toBe("light");
   });
 
   it("keeps playback speed off until it is turned on", () => {

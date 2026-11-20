@@ -20,6 +20,7 @@ pub mod engine;
 pub mod events;
 pub mod export;
 pub mod library;
+pub mod mcp;
 pub mod paths;
 pub mod peaks;
 pub mod plugins;
@@ -54,6 +55,7 @@ pub fn run() {
         .manage(controllers::Controllers::default())
         .manage(engine::PreviewPlayer::default())
         .manage(engine::Transport::default())
+        .manage(engine::ScrubPlayer::default())
         .manage(engine::Recorder::default())
         .manage(commands::session::OpenSession::default())
         .manage(commands::export::ExportCancel::default())
@@ -64,6 +66,7 @@ pub fn run() {
         .manage(commands::wave::Playing::default())
         .manage(commands::update::PendingUpdate::default())
         .manage(commands::video::Videos::default())
+        .manage(commands::mcp::Assistant::default())
         .setup(|app| {
             // The handle core logic uses to reach the interface (Phase 0 of the native move).
             tauri::Manager::manage(
@@ -86,6 +89,11 @@ pub fn run() {
             // Reversed clips read reversed copies kept with the other working files.
             if let Ok(root) = commands::cache::cache_root(app.handle()) {
                 engine::reverse::set_dir(root.join("Reversed"));
+            }
+            // The assistant connection listens only if the person turned it on.
+            {
+                use tauri::Manager;
+                commands::mcp::init(app.handle(), &app.state::<commands::mcp::Assistant>());
             }
             Ok(())
         })
@@ -125,6 +133,13 @@ pub fn run() {
             commands::library::library_clean_up,
             commands::library::library_pick_folder,
             commands::links::open_link,
+            commands::mcp::assistant_status,
+            commands::mcp::assistant_configure,
+            commands::mcp::assistant_new_token,
+            commands::mcp::assistant_ready,
+            commands::mcp::assistant_reply,
+            commands::mcp::assistant_activity,
+            commands::mcp::assistant_clear_activity,
             commands::media::media_expand,
             commands::media::media_probe,
             commands::media::media_pick_files,
@@ -142,6 +157,9 @@ pub fn run() {
             commands::preferences::preferences_load,
             commands::preferences::preferences_save,
             commands::transport::transport_play,
+            commands::transport::scrub_start,
+            commands::transport::scrub_to,
+            commands::transport::scrub_stop,
             commands::transport::transport_stop,
             commands::transport::transport_status,
             commands::transport::transport_set_mono_check,

@@ -90,7 +90,7 @@
   .tabs .on {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .sliders {
     display: grid;

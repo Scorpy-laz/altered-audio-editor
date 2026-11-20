@@ -69,7 +69,7 @@
     border: 1px solid var(--border-strong);
     border-radius: 3px;
     background: var(--surface-1);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 6px 18px var(--shadow-soft);
     color: var(--text);
     font-size: var(--font-size-small);
     font-style: normal;

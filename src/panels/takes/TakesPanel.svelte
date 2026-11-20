@@ -179,6 +179,6 @@
   .fill {
     display: block;
     height: 100%;
-    background: var(--accent, #4a90d9);
+    background: var(--accent);
   }
 </style>

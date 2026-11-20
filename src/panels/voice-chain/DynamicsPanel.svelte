@@ -137,7 +137,7 @@
     stroke-width: 0.5;
   }
   .unity {
-    stroke: var(--text-faint, #777);
+    stroke: var(--text-faint);
     stroke-dasharray: 3 3;
     stroke-width: 0.7;
   }

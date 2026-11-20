@@ -14,6 +14,8 @@
   import { keepLast } from "./device-cache";
   import BackupPage from "./BackupPage.svelte";
   import InfoTip from "../InfoTip.svelte";
+  import AssistantPage from "./AssistantPage.svelte";
+  import type { AssistantStatus } from "../core";
   import { BROADCAST_REGIONS, targetsFor } from "../loudness";
   import { DEFAULT_SETTINGS, NO_COLORS, TIMECODE_RATES, type AppColors } from "../../stores/settings";
   import { cleanDraft, LATER_PAGES, PAGES, sizeText, type Page, type SettingsDraft } from "./pages";
@@ -24,9 +26,13 @@
     onApply: (d: SettingsDraft) => void;
     onNotice?: (m: string) => void;
     onClose: () => void;
+    /** Settings > Assistant: opens the Assistant Activity window. */
+    onAssistantActivity?: () => void;
+    /** Settings > Assistant: the connection's state changed. */
+    onAssistantStatus?: (s: AssistantStatus) => void;
   }
 
-  const { initial, page: startPage = "General", onApply, onNotice = () => {}, onClose }: Props = $props();
+  const { initial, page: startPage = "General", onApply, onNotice = () => {}, onClose, onAssistantActivity, onAssistantStatus }: Props = $props();
 
   // svelte-ignore state_referenced_locally
   let d = $state<SettingsDraft>($state.snapshot(initial) as SettingsDraft);
@@ -111,16 +117,18 @@
     }
   }
 
-  const COLOR_ROWS: { key: keyof AppColors; label: string; theme: string }[] = [
-    { key: "wave", label: "Waveform (Waveform editor)", theme: "#53c28b" },
-    { key: "playhead", label: "Playhead", theme: "#f2c14e" },
-    { key: "accent", label: "Accent (focus and selection)", theme: "#3fa9f5" },
-    { key: "laneSelected", label: "Selected track lane", theme: "#34343b" },
+  // The built-in colors of each surface, shown in the picker while a row is on Theme.
+  const isLight = $derived(d.app.surface === "light");
+  const COLOR_ROWS: { key: keyof AppColors; label: string; theme: string }[] = $derived([
+    { key: "wave", label: "Waveform (Waveform editor)", theme: isLight ? "#23855a" : "#53c28b" },
+    { key: "playhead", label: "Playhead", theme: isLight ? "#d4570b" : "#f2c14e" },
+    { key: "accent", label: "Accent (focus and selection)", theme: isLight ? "#1a6fc9" : "#3fa9f5" },
+    { key: "laneSelected", label: "Selected track lane", theme: isLight ? "#d3dcea" : d.app.surface === "classic" ? "#34343b" : "#3d3d46" },
     { key: "spectrumLow", label: "Spectrogram, quiet", theme: "#2a1a8a" },
     { key: "spectrumHigh", label: "Spectrogram, loud", theme: "#ffe066" },
     { key: "phaseLow", label: "Phase Wheel, low notes", theme: "#ff2a2a" },
     { key: "phaseHigh", label: "Phase Wheel, high notes", theme: "#e02aff" },
-  ];
+  ]);
   const CACHE_NOTES: Record<string, string> = {
     peaks: "Waveform drawings",
     spectral: "Spectrum edit results",
@@ -193,7 +201,7 @@
           </fieldset>
           <p class="note">The Space bar plays, and stops when playing or recording.</p>
         {:else if page === "Appearance"}
-          <p class="note">Leave a color on Theme to keep the built-in one. Changes show the next time each view redraws.</p>
+          <p class="note">Leave a color on Theme to keep the built-in one for the panel brightness you pick.</p>
           <div class="colors">
             {#each COLOR_ROWS as r (r.key)}
               <span>{r.label}</span>
@@ -201,7 +209,7 @@
               <button type="button" disabled={!d.app.colors[r.key]} onclick={() => (d.app.colors[r.key] = "")}>Theme</button>
             {/each}
           </div>
-          <label><select bind:value={d.app.surface}><option value="standard">Standard</option><option value="classic">Classic (darker)</option></select> Panel brightness <span class="why">Standard is closer to Audition's charcoal. Classic is the darker look of earlier versions.</span></label>
+          <label><select bind:value={d.app.surface}><option value="light">Light</option><option value="standard">Standard (dark)</option><option value="classic">Classic (darker)</option></select> Panel brightness <span class="why">Light has pale grey panels and dark text. Standard is a charcoal dark look. Classic is the darker look of earlier versions.</span></label>
         {:else if page === "Audio Devices"}
           <label class="row">
             Play through
@@ -393,7 +401,7 @@
             <label><input type="checkbox" bind:checked={d.editor.followPlayhead} /> Scroll to follow the playhead</label>
             <label><input type="checkbox" bind:checked={d.app.stopAtSelectionEnd} /> When playback starts within a selection, stop at the end of the selection <span class="why">On, as in Audition: select a stretch, press Space, and it stops at the end. Off: it plays on past the selection. Loop Playback and Skip Selection are not affected.</span></label>
             <label><input type="checkbox" bind:checked={d.app.playbackSpeed} /> Playback speed (experimental): adds Transport > Playback Speed, 0.5x to 2x with the pitch kept <span class="why">For listening and reviewing only; recording, exports and saved files are not affected. 0.5x and 2x sound smeared, the metronome is silent while it is not 1x, and it does not apply to 3D Space sessions heard on speakers. Back to 1x each time the program starts.</span></label>
-            <label><input type="checkbox" bind:checked={d.app.scrubAudio} /> Play audio while scrubbing <span class="why">Drag the playhead along the ruler to hear it. Approximate: playback restarts at the pointer every moment.</span></label>
+            <label><input type="checkbox" bind:checked={d.app.scrubAudio} /> Play audio while scrubbing <span class="why">Drag the playhead along the ruler to hear it like tape: slow and low, fast and high, or backwards, up to 4 times normal speed. Holding still goes quiet.</span></label>
           </fieldset>
           <fieldset>
             <legend>Meters turn yellow and red at</legend>
@@ -464,9 +472,13 @@
           <p class="note">Podcast targets follow published podcast guidance (stereo -16 LUFS, mono -19 LUFS, true peak at or below -1 dBTP). Broadcast targets follow the region.</p>
         {:else if page === "Automation"}
           <p class="note">Process chains are available now. Multitrack &gt; Run Process Chain runs a saved list of steps (Auto Mic Mix, Close Dead Space, Loudness Target, a Voice Chain preset, QuickPass) on the open session as one undo step. Example chains come with the program, in the docs/chains folder.</p>
-          <p class="note">Scripting, and a local endpoint that lets other programs and AI agents drive the editor, are planned for after 1.0. They are not in this version, nothing listens for connections, and there is nothing here to turn on. When they arrive they will be off by default and will keep to this computer.</p>
+          <p class="note">Settings &gt; Assistant lets an AI assistant on this computer drive the editor through a local connection. It is off until you turn it on.</p>
+        {:else if page === "Assistant"}
+          <AssistantPage onOpenActivity={onAssistantActivity} onStatus={onAssistantStatus} />
+        {:else if page === "Privacy"}
           <p class="note">Altered Audio Editor never goes online by itself. No account, no sign-in, no tracking, no usage data, no crash reports. Everything stays on this computer.</p>
           <p class="note">The only web pages it opens are the ones you pick in the Help menu, in your own browser.</p>
+          <p class="note">The assistant connection (Settings &gt; Assistant) is off unless you turn it on. When on, it accepts connections from this computer only and the editor still sends nothing anywhere. An assistant you connect may send what it reads (track names, file names, levels) to its own online service; that is between you and that service.</p>
           <label><input type="checkbox" bind:checked={d.app.updateCheck} /> Tell me when a new version is out</label>
           <fieldset disabled={!d.app.updateCheck}>
             <legend>How often to look</legend>
@@ -493,7 +505,7 @@
     z-index: 5000;
     display: grid;
     place-items: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--backdrop);
   }
   .dialog {
     display: grid;
@@ -502,7 +514,7 @@
     height: min(560px, 92vh);
     border: 1px solid var(--border-strong);
     background: var(--surface-2);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 40px var(--shadow);
     font-size: 12px;
   }
   header {
@@ -678,7 +690,7 @@
   .primary {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .outmap {
     display: grid;

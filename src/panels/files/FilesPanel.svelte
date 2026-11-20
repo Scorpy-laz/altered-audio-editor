@@ -785,7 +785,7 @@
     color: var(--text-dim);
   }
   .row.session[aria-selected="true"] {
-    background: var(--selection, rgba(63, 169, 245, 0.18));
+    background: var(--selection);
   }
   .sclose {
     visibility: hidden;
@@ -805,7 +805,7 @@
     visibility: visible;
   }
   .sclose:hover {
-    background: var(--surface-3, #333);
+    background: var(--surface-3);
     color: var(--text);
   }
   .sicon {
@@ -978,7 +978,7 @@
 
   .row[aria-selected="true"] {
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .rows:focus-visible .row[aria-selected="true"] {
@@ -1073,7 +1073,7 @@
     display: grid;
     place-items: center;
     border: 2px dashed var(--accent);
-    background: rgba(63, 169, 245, 0.12);
+    background: var(--accent-wash);
     color: var(--text);
     font-weight: 600;
     pointer-events: none;

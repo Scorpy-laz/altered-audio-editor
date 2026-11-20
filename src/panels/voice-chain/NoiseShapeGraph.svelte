@@ -324,7 +324,7 @@
     padding: 4px 2px;
     border: 1px solid var(--border);
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.18);
+    background: var(--shade);
   }
   .plot {
     position: relative;
@@ -340,7 +340,7 @@
     padding: 5px 6px;
     border: 1px solid var(--border);
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.18);
+    background: var(--shade);
   }
   .f {
     display: grid;
@@ -403,7 +403,7 @@
     display: block;
   }
   .bg {
-    fill: #0b0b0e;
+    fill: var(--graph-bg);
     stroke: var(--border);
   }
   .spectrum {
@@ -412,10 +412,10 @@
     stroke-width: 0.8;
   }
   .grid {
-    stroke: rgba(255, 255, 255, 0.06);
+    stroke: var(--grid-line);
   }
   .grid.major {
-    stroke: rgba(255, 255, 255, 0.12);
+    stroke: var(--graph-grid-major);
   }
   .lab {
     fill: var(--text-faint);
@@ -423,12 +423,12 @@
   }
   .print {
     fill: none;
-    stroke: rgba(235, 235, 240, 0.85);
+    stroke: var(--graph-print);
     stroke-width: 1.4;
   }
   .thr {
     fill: none;
-    stroke: #f0a040;
+    stroke: var(--graph-curve-hot);
     stroke-width: 2;
   }
   .node {
@@ -455,7 +455,7 @@
     pointer-events: none;
   }
   .node.off text {
-    fill: #f0a040;
+    fill: var(--graph-curve-hot);
   }
   .legend text {
     fill: var(--text-dim);
@@ -465,10 +465,10 @@
     fill: color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .sw.pr {
-    fill: rgba(235, 235, 240, 0.85);
+    fill: var(--graph-print);
   }
   .sw.th {
-    fill: #f0a040;
+    fill: var(--graph-curve-hot);
   }
   .tip {
     position: absolute;

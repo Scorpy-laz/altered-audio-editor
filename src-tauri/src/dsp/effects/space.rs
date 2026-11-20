@@ -156,6 +156,13 @@ impl Room {
     }
 }
 
+impl Room {
+    /// Changes the wet share (0 to 1) while it rings, keeping the tail.
+    pub(crate) fn set_mix(&mut self, mix: f32) {
+        self.mix = mix.clamp(0.0, 1.0);
+    }
+}
+
 impl Processor for Room {
     fn process(&mut self, buf: &mut [f32]) {
         for f in buf.as_chunks_mut::<2>().0 {

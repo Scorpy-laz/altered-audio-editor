@@ -514,7 +514,7 @@
     border: 1px solid var(--border-strong);
     background: var(--surface-2);
     border-radius: 2px;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 10px 28px var(--shadow);
   }
 
   .cell {
@@ -549,7 +549,7 @@
 
   .row.active {
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .row.disabled {

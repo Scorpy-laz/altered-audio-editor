@@ -7,7 +7,9 @@
 -->
 <script lang="ts">
   import Dialog from "./Dialog.svelte";
-  import logo from "../assets/logo-dark.png";
+  import logoDark from "../assets/logo-dark.png";
+  import logoLight from "../assets/logo-light.png";
+  import { settings } from "../stores/settings";
 
   interface Props {
     version: string | null;
@@ -15,6 +17,8 @@
   }
 
   const { version, onClose }: Props = $props();
+  // The logo drawn for the panel brightness: dark artwork on the dark surfaces, light on Light.
+  const logo = $derived($settings.surface === "light" ? logoLight : logoDark);
 </script>
 
 <Dialog title="About Altered Audio Editor" width={420} {onClose}>

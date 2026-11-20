@@ -37,6 +37,7 @@ There is no account, no sign-in, no tracking and no telemetry.
 
 - Your audio and sessions stay on your computer. The program goes online only when you choose Help > Check for Updates or open a link from the Help menu.
 - There is also an update notice that is off until you turn it on in Settings > Privacy. Pick every start or once a week. When a newer version exists, a small notice appears in the bottom right corner with a button to see what is new. You can also tick "Install it for me when the program starts": the update is then checked against the project's signing key and installed at start-up (installed copies only), after asking about any unsaved work. Otherwise nothing installs until you click Install and Restart, and with the notice off the program never goes online by itself.
+- The assistant connection (below) is off until you turn it on, and only programs on this computer can use it.
 
 ## Recording
 
@@ -54,7 +55,7 @@ To record a call, each output device is also offered as an input named "System a
 
 **Marking while you record.** Three quick marks drop a numbered marker at the playhead: Add Retake Marker (F6), Add Cut This Marker (Shift+F6) and Add Great Bit Marker (Ctrl+F6). They work in the Multitrack and in the Waveform Editor, and every key can be changed in Keyboard Shortcuts. Window > Review lists your Cut this, Retake and Great bit marks in time order, with Previous and Next to step through them and a filter to show one kind.
 
-**Scrubbing.** Settings > Playback and Recording has Play audio while scrubbing. With it on, dragging the playhead along the ruler plays what is under it. It is approximate: playback restarts at the pointer every moment. It is off by default.
+**Scrubbing.** Drag the playhead along the ruler, in the Multitrack or the Waveform editor, and you hear the audio under it like a tape moving past the head: drag slowly and it plays slow and low, quickly and it plays fast and high, backwards and it plays in reverse (up to 4 times normal speed either way). Hold the pointer still and it goes quiet. Scrubbing works while playback is stopped; it plays the session's effects but not VST3 plug-ins or instruments. Switch it off in Settings > Playback and Recording > Play audio while scrubbing.
 
 **Playback speed.** Settings > Playback and Recording has Playback speed (experimental). With it on, Transport > Playback Speed plays the mix from 0.5x to 2x with the pitch kept, which is handy for reviewing speech. It is for listening only: recording, exports and saved files are not affected. At 0.5x and 2x the sound is smeared, the metronome is silent whenever the speed is not Normal, and it does not apply to 3D Space sessions heard on speakers. Recording puts it back to Normal, and so does starting the program again.
 
@@ -160,6 +161,18 @@ A process chain is a small text file that lists steps to run on a session in ord
 
 The steps are Auto Mic Mix, Close Dead Space, Loudness Target (sets the Master so the mix reaches a target, and stops short rather than push peaks past its limit), Voice Chain Preset (gives a track or every track a preset by name) and QuickPass (runs a preset that removes or turns down what it finds). Example chains are in the docs/chains folder that comes with the program.
 
+## AI assistants
+
+Settings > Assistant lets an AI assistant on this computer (Claude Desktop, Claude Code, Codex) work with the editor: read the session, add and tune Voice Chain effects, set levels, place markers, check loudness and export.
+
+- It is off until you tick Allow assistants to connect. It listens on this computer only, and every request needs the token on that page.
+- With Allow changes off, the assistant can only read. With it on, every change it makes is one step in History named "Assistant: ...", so Ctrl+Z takes it back.
+- The Copy buttons give the settings to paste into the assistant app. They start this program as a small bridge, so the token never goes into the other app.
+- Edit > Assistant Activity lists every request. The status bar shows "Assistant on" while the connection is on.
+- The assistant app may send what it reads (track and file names, levels) to its own online service. The editor itself sends nothing.
+
+The full set-up for each app, including ChatGPT, is in docs/mcp.md.
+
 ## Music, stretching and fitting
 
 Select a clip and open the **Properties** panel.
@@ -195,6 +208,17 @@ The **Speech Denoiser** (under Restoration) takes steady background noise out of
 - **Speech Denoiser (High Quality)** is a larger network for harder noise, such as keyboards, traffic and a faraway second voice. It uses more of the processor and adds about 40 ms of delay, which the session makes up for, and its Amount starts at 100.
 - The **Limiter** has a True peak switch that holds the peaks between samples under the ceiling, which matters for MP3 and AAC encoders and phone speakers.
 - **Match EQ** can match another track or a neutral voice target, which builds a gentle EQ that moves no band more than 6 dB. For more, plug-ins are described below.
+
+**Mastering** (Effects > Mastering) gives a finished mix its final polish and loudness.
+
+- **Mastering Suite on the Master** adds the Mastering Suite to the end of the master's Voice Chain and opens its window. In the Waveform editor it goes on the file's preview chain instead.
+- The Mastering Suite has five stages in one window, run in this order: an EQ (low cut, low shelf, one peak band, high shelf), a short Reverb for depth, an Exciter that adds warmth or air (Tube, Tape or Bright), Width for the stereo picture, and Loudness. Output trims the level last.
+- Loudness is a true-peak limiter. Raise Push until the mix is loud enough; no peak goes over the Ceiling, including the peaks between samples. It always looks 5 ms ahead, so switching it off or on never restarts playback.
+- Its Presets menu has starting points: Podcast, -16 LUFS Target; Audiobook; Music Loud; Streaming Music, -14 LUFS Target; Gentle Polish; Warm Tape; Broadcast Voice, Dense; and Drama Mix, Light Space.
+- The other entries replace the master's chain with a mastering chain made of the separate effects (EQ, Multiband Compressor, Tube Preamp, Limiter with True peak on), so each stage can be tuned on its own. The same chains are in the Voice Chain's Presets menu under Mastering Chains. Undo brings back the old chain.
+- A loudness in a preset's name is what it aims for with a typical mix going in, not a promise. Check the result with File > Check Loudness, or use Loudness Match.
+
+**Reverb, echo and modulation.** Room Reverb needs no file and has presets for rooms, a hall, a plate, a cathedral and spaces for audio drama (kitchen, bathroom, stairwell, inside a car, cave, open field) in the Voice Chain's Presets menu under Reverb and in its own window. Convolution Reverb plays the sound through a recorded space you load. Delay and Echo and Tape Delay make repeats; Chorus, Flanger, Phaser and Stereo Expander are under Modulation.
 
 **QuickPass** (Effects > QuickPass) scans your clips for silences, short noises such as coughs and bumps, clicks and clipping, and lists what it found before changing anything.
 
@@ -386,6 +410,7 @@ View > Podcast Mode switches to the Default workspace and turns Music Mode off.
 Open Settings with Edit > Settings.
 
 - Pages cover audio hardware, playback and recording, appearance, colors and where files go.
+- Appearance > Panel brightness picks the look: Light (pale grey panels, dark text, the default), Standard (charcoal) or Classic (darker). The waveforms, graphs, rulers and the window frame change with it at once.
 - Every setting you see does something. Channel Routing has a Mono option that plays both sides together on one output, for a single speaker.
 - The cache, recordings and other working files each have a place you can change.
 

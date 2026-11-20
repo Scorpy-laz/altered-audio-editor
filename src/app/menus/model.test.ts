@@ -3,6 +3,7 @@
 // This file is part of Altered Audio Editor.
 
 import { describe, expect, it } from "vitest";
+import { MASTERING_PRESETS } from "../../panels/voice-chain/chain";
 import { MENUS, commandList, menuActionIds, type MenuItem } from "./model";
 
 function allItems(items: readonly MenuItem[]): MenuItem[] {
@@ -67,6 +68,7 @@ describe("menu model", () => {
       "window.minimize",
       "edit.keyboard-shortcuts",
       "edit.settings",
+      "edit.assistant-activity",
       "multitrack.speaker-balance",
       "multitrack.duck-music",
       "multitrack.mic-mix",
@@ -276,6 +278,9 @@ describe("menu model", () => {
       "fx.add.distortion",
       "fx.add.channel-mixer",
       "fx.add.stereo-expander",
+      "fx.add.mastering",
+      "fx.mastering.suite-master",
+      ...MASTERING_PRESETS.map((_, i) => `fx.mastering.chain.${i}`),
       "analysis.frequency",
       "analysis.statistics",
       "analysis.histogram",

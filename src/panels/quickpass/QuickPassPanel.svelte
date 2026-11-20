@@ -657,7 +657,7 @@
   }
   .tabs button.on {
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .body {
     flex: 1;
@@ -730,7 +730,7 @@
   .bar .go {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
     min-width: 64px;
   }
   .bar .go:hover:not(:disabled) {
@@ -767,7 +767,7 @@
   }
   .row.picked {
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .row.fixed {
     color: var(--text-faint);

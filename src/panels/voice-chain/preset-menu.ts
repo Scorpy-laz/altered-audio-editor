@@ -3,15 +3,15 @@
 // This file is part of Altered Audio Editor.
 
 import type { ContextItem } from "../../app/ContextMenu.svelte";
-import { PRESET_INFO, type ChainPreset } from "./chain";
+import { MASTERING_BLURBS, PRESET_INFO, type ChainPreset } from "./chain";
 
 const CATEGORIES = ["Podcast Voices", "Character Types", "Cleanup", "Voice Over"] as const;
-const ADD_GROUPS = ["Breath gates", "Processing", "Delay", "Repair", "EQ"] as const;
+const ADD_GROUPS = ["Breath gates", "Processing", "Delay", "Reverb", "Modulation", "Repair", "EQ"] as const;
 
 /**
  * The Presets pop-out: Voice Chains (Podcast Voices, Character Types,
- * Cleanup, Voice Over) replace the chain; the single-effect groups add
- * one effect. Each row carries a short description on the right.
+ * Cleanup, Voice Over) and the Mastering chains replace the chain; the
+ * single-effect groups add one effect. Each row carries a short description on the right.
  */
 export function presetMenu(user: readonly ChainPreset[], builtin: readonly ChainPreset[], pick: (name: string) => void, onImport?: () => void, pack?: { save: () => void; load: () => void }): ContextItem[] {
   const row = (p: ChainPreset, hint?: string): ContextItem => ({ kind: "item", label: p.name, run: () => pick(p.name), shortcut: hint });
@@ -27,6 +27,8 @@ export function presetMenu(user: readonly ChainPreset[], builtin: readonly Chain
       items: voice.filter((p) => (PRESET_INFO[p.name]?.category ?? "Cleanup") === c).map((p) => row(p, PRESET_INFO[p.name]?.blurb)),
     })).filter((c) => c.kind === "sub" && c.items.length > 0),
   });
+  const mastering = builtin.filter((p) => p.group === "Mastering");
+  if (mastering.length) out.push({ kind: "sub", label: "Mastering Chains (replace the chain)", items: mastering.map((p) => row(p, MASTERING_BLURBS[p.name])) });
   for (const g of ADD_GROUPS) {
     const list = builtin.filter((p) => p.group === g);
     if (list.length) out.push({ kind: "sub", label: `${g} (add one effect)`, items: list.map((p) => row(p, PRESET_INFO[p.name]?.blurb)) });

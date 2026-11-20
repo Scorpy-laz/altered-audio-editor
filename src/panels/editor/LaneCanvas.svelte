@@ -15,6 +15,7 @@
   import { defaultTrackColor, trackHeight, peakRange, pickLevel, xOf, type Viewport, TRACK_GAP } from "./timeline";
   import { chipBox, chipLabel, fxLaneOf, pointsOf, rangeOf, restValue, valueToY, type EnvKind, type FxLane } from "./envelope";
   import { exactSamples, SAMPLE_VIEW } from "../../stores/exact-samples";
+  import { cssNum, cssVar, mixColor, themeTick } from "../../app/theme";
 
   interface Props {
     track: TrackDoc;
@@ -53,8 +54,9 @@
 
   let canvas = $state<HTMLCanvasElement | null>(null);
 
+  /** A theme color, cached until the surface or a color setting changes. */
   function css(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+    return cssVar(name, "#888");
   }
 
   /** Fade gain for t from 0 to 1. Matches the playback engine. */
@@ -93,7 +95,7 @@
     }
     g.lineTo(to, top);
     g.closePath();
-    g.fillStyle = "rgba(0, 0, 0, 0.2)";
+    g.fillStyle = css("--fade-shade");
     g.fill();
     g.beginPath();
     for (let i = 0; i <= steps; i++) {
@@ -103,25 +105,14 @@
       if (i === 0) g.moveTo(x, y);
       else g.lineTo(x, y);
     }
-    g.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    g.strokeStyle = css("--fade-line");
     g.lineWidth = 1;
     g.stroke();
   }
 
-  /** Mixes a color toward white by `amount` (0 to 1). Unknown formats come back unchanged. */
-  function lighten(c: string, amount: number): string {
-    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim());
-    let r: number, gr: number, b: number;
-    if (m) {
-      const h = m[1]!.length === 3 ? m[1]!.replace(/./g, (x) => x + x) : m[1]!;
-      [r, gr, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
-    } else {
-      const n = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(c.trim());
-      if (!n) return c;
-      [r, gr, b] = [Number(n[1]), Number(n[2]), Number(n[3])];
-    }
-    const mix = (v: number) => Math.round(v + (255 - v) * amount);
-    return `rgb(${mix(r)}, ${mix(gr)}, ${mix(b)})`;
+  /** The waveform color for a clip color: lighter on the dark surfaces, deeper on Light, so it stands out from the clip body. */
+  function waveTone(c: string): string {
+    return mixColor(c, css("--wave-tone"), cssNum("--wave-tone-amount", 0.55));
   }
 
   /** Clips in one group share a color of their own, so a group stands out from the single clips. */
@@ -165,6 +156,7 @@
   $effect(() => {
     void peakKey;
     void exactTick;
+    void $themeTick;
     void liveTake?.tick;
     const c = canvas;
     if (!c) return;
@@ -215,11 +207,11 @@
       // Body and title bar.
       g.globalAlpha = clip.muted || clip.take?.active === false ? 0.35 : 1;
       g.fillStyle = color;
-      g.globalAlpha *= 0.2;
+      g.globalAlpha *= cssNum("--clip-body-alpha", 0.2);
       g.fillRect(left, 1, right - left, lh - 2);
-      // No solid title bar (as in Audition): the name floats over the clip, in light text.
+      // No solid title bar: the name floats over the clip.
       g.globalAlpha = clip.muted || clip.take?.active === false ? 0.35 : 1;
-      g.fillStyle = "#eef0f4";
+      g.fillStyle = css("--clip-text");
       g.font = `11px ${css("--font-ui")}`;
       g.textBaseline = "middle";
       g.save();
@@ -268,7 +260,7 @@
         // The waveform grows and shrinks with the clip's level.
         const clipLevel = Math.pow(10, (clip.gain_db ?? 0) / 20);
         if (exact) {
-          const tone = lighten(color, 0.55);
+          const tone = waveTone(color);
           g.strokeStyle = tone;
           g.fillStyle = tone;
           g.lineWidth = 1.25;
@@ -309,7 +301,7 @@
           g.globalAlpha = 1;
         } else if (level) {
           // Much lighter than the clip body so the waveform stands out.
-          g.fillStyle = lighten(color, 0.55);
+          g.fillStyle = waveTone(color);
           g.globalAlpha = clip.muted || clip.take?.active === false ? 0.35 : 1;
           const laneH = body.height / ch;
           // A looped clip wraps back to the start of its region.
@@ -345,7 +337,7 @@
           const rowH = body.height / ch;
           g.save();
           g.font = `9px ${css("--font-mono")}`;
-          g.fillStyle = "rgba(255, 255, 255, 0.6)";
+          g.fillStyle = css("--clip-note");
           g.textBaseline = "top";
           for (let k = 0; k < ch; k++) g.fillText(names[k]!, Math.max(x0, 0) + 16, body.top + rowH * k + 2);
           g.restore();
@@ -356,7 +348,7 @@
           const firstTl = regionTl - (clip.looped.phase * sessionRate) / srcRate;
           if (regionTl / view.spp >= 4) {
             g.save();
-            g.strokeStyle = "rgba(255, 255, 255, 0.55)";
+            g.strokeStyle = css("--loop-line");
             g.setLineDash([3, 3]);
             g.lineWidth = 1;
             for (let t = firstTl; t < clip.looped.length; t += regionTl) {
@@ -486,10 +478,10 @@
       // An effect setting is violet, its top the control's highest value.
       const fxLane = showFx ? fxLaneOf(clip, fxLanes) : null;
       const shown: [EnvKind, string][] = [];
-      if (showVolume) shown.push(["volume", "255, 215, 94"]);
-      if (showPan) shown.push(["pan", "120, 235, 255"]);
-      if (fxLane) shown.push(["fx", "205, 150, 255"]);
-      for (const [kind, rgb] of shown) {
+      if (showVolume) shown.push(["volume", css("--env-volume")]);
+      if (showPan) shown.push(["pan", css("--env-pan")]);
+      if (fxLane) shown.push(["fx", css("--env-fx")]);
+      for (const [kind, envColor] of shown) {
         const pts = pointsOf(clip, kind, fxLane);
         const range = rangeOf(kind, clip, fxLane);
         const rest = restValue(kind, clip, fxLane);
@@ -498,7 +490,8 @@
         g.beginPath();
         g.rect(left, body.top, right - left, body.height);
         g.clip();
-        g.strokeStyle = pts.length ? `rgb(${rgb})` : `rgba(${rgb}, 0.8)`;
+        g.strokeStyle = envColor;
+        g.globalAlpha = pts.length ? 1 : 0.8;
         g.lineWidth = 1.5;
         g.beginPath();
         if (pts.length === 0) {
@@ -510,6 +503,7 @@
           g.lineTo(x1, yAt(pts[pts.length - 1]!.value));
         }
         g.stroke();
+        g.globalAlpha = 1;
         const picked = envSelected && envSelected.clip === clip.id && envSelected.env === kind ? envSelected.idx : [];
         pts.forEach((p, k) => {
           const px = Math.round(xOf(clip.start + p.position, view));
@@ -520,10 +514,10 @@
             g.fillRect(px - 5, py - 5, 10, 10);
             g.fillStyle = "#ffffff";
             g.fillRect(px - 4, py - 4, 8, 8);
-            g.fillStyle = `rgb(${rgb})`;
+            g.fillStyle = envColor;
             g.fillRect(px - 2, py - 2, 4, 4);
           } else {
-            g.fillStyle = `rgb(${rgb})`;
+            g.fillStyle = envColor;
             g.fillRect(px - 3, py - 3, 6, 6);
           }
         });
@@ -532,23 +526,23 @@
 
       // Raised edge: a light top and left, a dark bottom and right, so clips stand off the lane.
       g.globalAlpha = clip.muted || clip.take?.active === false ? 0.35 : 1;
-      g.fillStyle = "rgba(255, 255, 255, 0.28)";
+      g.fillStyle = css("--clip-edge-hi");
       g.fillRect(left, 1, right - left, 1);
       if (x0 >= 0) g.fillRect(x0 + 1, 1, 1, lh - 3);
-      g.fillStyle = "rgba(0, 0, 0, 0.55)";
+      g.fillStyle = css("--clip-edge-lo");
       g.fillRect(left, lh - 2, right - left, 1);
       if (x1 <= width) g.fillRect(x1 - 2, 1, 1, lh - 3);
 
       // Outline.
       g.globalAlpha = 1;
       if (selected) {
-        // Clear selection: a light wash over the whole clip, a dark halo and a thick white outline.
-        g.fillStyle = "rgba(255, 255, 255, 0.14)";
+        // Clear selection: a wash over the whole clip, a halo and a thick outline (white on dark, near black on Light).
+        g.fillStyle = css("--clip-select-wash");
         g.fillRect(left, 1, right - left, lh - 2);
-        g.strokeStyle = "rgba(0, 0, 0, 0.7)";
+        g.strokeStyle = css("--clip-select-halo");
         g.lineWidth = 4;
         g.strokeRect(x0 + 0.5, 1.5, x1 - x0 - 1, lh - 3);
-        g.strokeStyle = "#ffffff";
+        g.strokeStyle = css("--clip-select-line");
         g.lineWidth = 2;
         g.strokeRect(x0 + 0.5, 1.5, x1 - x0 - 1, lh - 3);
       } else {

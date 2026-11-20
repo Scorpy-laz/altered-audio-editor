@@ -30,6 +30,9 @@ export interface AppColors {
   phaseHigh: string;
 }
 
+/** Panel brightness. Light is the default for new settings. */
+export type Surface = "light" | "standard" | "classic";
+
 export interface AppSettings {
   /** How much one Ctrl+wheel step zooms, in percent. */
   zoomStep: number;
@@ -42,8 +45,8 @@ export interface AppSettings {
   dropMany: "sequence" | "tracks";
   /** What the space bar does to a playing session. */
   colors: AppColors;
-  /** How light the panels are: Audition-like charcoal, or the darker classic look. */
-  surface: "standard" | "classic";
+  /** Panel brightness: Light, Standard (charcoal) or Classic (darker). */
+  surface: Surface;
   /** System name of the output; null is the system default. */
   output: string | null;
   /** Device outputs (from 0) the stereo mix plays on: left, right. */
@@ -199,7 +202,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fadeShape: "cosine",
   dropMany: "tracks",
   colors: { ...NO_COLORS },
-  surface: "standard",
+  surface: "light",
   output: null,
   outputPair: [0, 1],
   speakerOutputs: {},
@@ -233,7 +236,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   returnOnStop: true,
   takeLanes: true,
   playbackSpeed: false,
-  scrubAudio: false,
+  scrubAudio: true,
   ampModelAlways: false,
   stopAtSelectionEnd: true,
   updateCheck: false,
@@ -277,7 +280,7 @@ export function sanitizeSettings(raw: unknown): AppSettings {
       o.fadeShape === "linear" || o.fadeShape === "logarithmic" || o.fadeShape === "exponential" || o.fadeShape === "equal_power"
         ? o.fadeShape
         : "cosine",
-    surface: o.surface === "classic" ? "classic" : "standard",
+    surface: o.surface === "classic" || o.surface === "standard" || o.surface === "light" ? o.surface : d.surface,
     colors: {
       wave: color(c.wave),
       playhead: color(c.playhead),

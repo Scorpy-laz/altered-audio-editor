@@ -249,7 +249,7 @@
   }
   .seg button.on {
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .seg button:focus-visible {
     outline: 2px solid var(--accent);
@@ -303,7 +303,7 @@
   footer button.primary {
     background: var(--accent);
     border-color: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   footer button:disabled {
     opacity: 0.45;

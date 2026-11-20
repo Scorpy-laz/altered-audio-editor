@@ -496,7 +496,7 @@
 
   .buttons .m.on {
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .buttons .s.on {
@@ -511,7 +511,7 @@
 
   .buttons .mo.on {
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .check {

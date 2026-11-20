@@ -68,7 +68,7 @@
     padding: 10px;
     border: 1px solid var(--border-strong);
     background: var(--surface-2);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 10px 28px var(--shadow);
     font-size: var(--font-size-small);
   }
   h2 {

@@ -105,10 +105,15 @@
   import { describeJoins, describePlan, FIT_XFADE, fitOps, type FitPlan } from "../panels/editor/musicfit";
   import { ALIGN_MAX_MS, alignOps, alignPair, describeAlign } from "../panels/editor/align";
   import SettingsDialog from "./settings/SettingsDialog.svelte";
+  import AssistantActivityDialog from "./AssistantActivityDialog.svelte";
+  import { AssistantDispatcher } from "./assistant/dispatcher";
+  import { assistantReady, assistantReply, assistantStatus, onAssistantActivity, onAssistantCall, type AssistantStatus } from "./core";
+  import { builtinPresets, sanitizeBank } from "../panels/voice-chain/effect-presets";
+  import { PLATFORM } from "../lib/platform";
   import { balance, balanceItems, describeBalance } from "./speaker-balance";
   import { DUCK_DEPTHS, duckPlan, hasDuck, withDuck, withoutDuck } from "./duck";
   import { HOST_PROFILES, profileById, profileOp } from "./host-profiles";
-  import type { SettingsDraft } from "./settings/pages";
+  import type { Page, SettingsDraft } from "./settings/pages";
   import { colorVars, meterPercent, sanitizeSettings, settings, type AppSettings } from "../stores/settings";
   import { setMeterSpeed, type TransportStore } from "../stores/transport";
   import GenerateDialog, { type GenerateMode, type GenerateValues } from "./GenerateDialog.svelte";
@@ -285,7 +290,8 @@
   import AudioFxPanel from "../panels/audio-fx/AudioFxPanel.svelte";
   import SoundTypesPanel from "../panels/audio-fx/SoundTypesPanel.svelte";
   import VoiceChainPanel from "../panels/voice-chain/VoiceChainPanel.svelte";
-  import { addSlot, chainOf, newSlot, type MenuPlugin } from "../panels/voice-chain/chain";
+  import { addSlot, chainOf, MASTERING_PRESETS, newSlot, presetChain, type ChainPreset, type MenuPlugin } from "../panels/voice-chain/chain";
+  import { MASTER_ID } from "../panels/mixer/routing";
   import { effectSearch, vst3Items } from "../panels/voice-chain/slot-drag";
   import { effectWindowRequest, hideEffectWindows } from "../panels/voice-chain/effect-window";
   import { setFxCatalog } from "../panels/editor/envelope";
@@ -3161,6 +3167,7 @@
     "distortion",
     "channel-mixer",
     "stereo-expander",
+    "mastering",
   ];
   function fxTarget(): { target: EffectTarget; chain: EffectChainDoc | undefined; name: string; wave?: boolean } | null {
     if (inWave()) {
@@ -3225,6 +3232,49 @@
     effectWindowRequest.set(slot.id);
     showNotice(at.wave ? `Added ${info.name}. Save writes it into the file; bypass the chain to save without it.` : `Added ${info.name} to ${at.name}.`);
   }
+
+  /**
+   * Effects > Mastering: a mastering chain replaces the master's Voice Chain, or the Mastering
+   * Suite is added at its end. In the Waveform editor the file's preview chain takes it instead.
+   * One undoable step; the Voice Chain panel then shows the master.
+   */
+  async function masterWith(preset: ChainPreset | null) {
+    const d = session.current;
+    const w = inWave() ? wave.current?.tracks[0] : undefined;
+    if (inWave() ? !w : !d) return;
+    fxCatalog ??= await effectsCatalog();
+    const current = chainOf(inWave() ? w!.effects : d!.master?.effects);
+    let next: EffectChainDoc | null;
+    let openId: string | null = null;
+    let label: string;
+    if (preset) {
+      next = presetChain(preset, new Set(fxCatalog.map((e) => e.id)), uuid);
+      label = `Master Chain: ${preset.name.replace(/^Master: /, "")}`;
+    } else {
+      const info = fxCatalog.find((e) => e.id === "altaudio.mastering");
+      if (!info) return;
+      const slot = newSlot(info, uuid());
+      next = addSlot(current, slot);
+      openId = slot.id;
+      label = "Add Mastering Suite to the Master";
+      if (!next) {
+        showNotice("That Voice Chain is full: it holds 16 effects.");
+        return;
+      }
+    }
+    if (inWave()) {
+      await wave.apply({ op: "set_effects", target: { kind: "track", id: w!.id }, chain: next! });
+    } else {
+      await session.edit(label, { op: "set_effects", target: { kind: "master" }, chain: next! }, sessionHistory);
+      editor.selectTrack(MASTER_ID);
+    }
+    dock.show("voice-chain");
+    if (openId) effectWindowRequest.set(openId);
+    const where = inWave() ? "the preview chain (Save writes it into the file)" : "the master";
+    showNotice(preset ? `${preset.name.replace(/^Master: /, "")} is now on ${where}. Undo brings back the old chain. Check the result with Check Loudness.` : `Added the Mastering Suite to ${where}. Pick a preset in its window.`);
+  }
+  const MASTER_REASON = () => (inWave() ? "Open a file in the Waveform editor first." : "Open or create a session first.");
+  const canMaster = () => (inWave() ? !!wave.current?.tracks[0] : !!session.current);
 
   const waveIsOpen = () => inWave() && waveFile.current() !== null;
   const waveFocus = () => waveIsOpen() && currentArea() !== "files" && currentArea() !== "libraries";
@@ -3810,8 +3860,11 @@
   // Edit > Settings.
   const KEY_SETTINGS = "app.settings";
   let settingsDraft = $state<SettingsDraft | null>(null);
-  function openSettings() {
+  /** The Settings page to open on. */
+  let settingsPage = $state<Page>("General");
+  function openSettings(page: Page = "General") {
     const ed = editor.current();
+    settingsPage = page;
     settingsDraft = {
       app: structuredClone(settings.current),
       editor: { followPlayhead: ed.followPlayhead, autoCrossfade: ed.autoCrossfade, timeFormat: ed.timeFormat },
@@ -3851,6 +3904,8 @@
   function applyAppSettings(s: AppSettings, autosave: boolean) {
     if (!s.playbackSpeed && speedNow !== 100) void chooseSpeed(100).catch(() => {});
     document.documentElement.dataset.surface = s.surface;
+    // The native title bar and window frame follow the panels.
+    if (isTauri()) void getCurrentWindow().setTheme(s.surface === "light" ? "light" : "dark").catch(() => {});
     const root = document.documentElement.style;
     for (const k of ["--wave", "--playhead", "--accent", "--lane-selected"]) root.removeProperty(k);
     for (const [k, v] of Object.entries(colorVars(s.colors))) root.setProperty(k, v);
@@ -4835,6 +4890,7 @@
       actions.register({ id: "window.minimize", run: () => minimizeWindow() }),
       actions.register({ id: "edit.keyboard-shortcuts", run: () => void (shortcutsOpen = true) }),
       actions.register({ id: "edit.settings", run: () => openSettings() }),
+      actions.register({ id: "edit.assistant-activity", run: () => void (assistantLogOpen = true) }),
       actions.register({ id: "edit.controllers", run: () => void (controllersOpen = true) }),
       actions.register({ id: "help.shortcuts", run: () => void (shortcutsOpen = true) }),
       actions.register({ id: "help.website", run: () => openLink(LINKS.website) }),
@@ -5716,6 +5772,8 @@
           reason: () => (inWave() ? "Open a file in the Waveform editor first." : "Select a track or one clip first."),
         }),
       ),
+      actions.register({ id: "fx.mastering.suite-master", run: () => masterWith(null), enabled: canMaster, reason: MASTER_REASON }),
+      ...MASTERING_PRESETS.map((p, i) => actions.register({ id: `fx.mastering.chain.${i}`, run: () => masterWith(p), enabled: canMaster, reason: MASTER_REASON })),
       actions.register({
         id: "fx.match-eq",
         run: () => {
@@ -6805,6 +6863,68 @@
     };
   });
 
+  // --- Assistant connection (Settings > Assistant, off by default) ---
+  let assistant = $state<AssistantStatus | null>(null);
+  let assistantLogOpen = $state(false);
+  /** Lit for a moment after each assistant request, in the status bar. */
+  let assistantBusy = $state(false);
+  let assistantBusyTimer: ReturnType<typeof setTimeout> | undefined;
+  const assistantDispatcher = new AssistantDispatcher({
+    session,
+    history: sessionHistory,
+    transport,
+    catalog: () => effectsCatalog(),
+    chainPresets: () => chainEnv().presets!(),
+    effectPresets: (id) => [...builtinPresets(id), ...(sanitizeBank(prefs.raw("voiceChain.effectPresets"))[id] ?? [])],
+    measure: (req) => loudnessCheck(req),
+    exportMix: (path, req) => exportMix(path, req),
+    pathsExist,
+    save: async (path) => {
+      await pluginSync.captureAll().catch(showError);
+      return (await files.saveAt(path)) ? session.path : null;
+    },
+    open: (path) => files.open(path),
+    importMedia: (paths, runner) => mediaPool.importPaths(paths, runner),
+    mediaIdle: () => mediaPool.whenIdle(),
+    media: (id) => mediaPool.get(id),
+    newId: uuid,
+    platform: PLATFORM,
+  });
+
+  /** Answers tool calls the core hands over, and shows the connection in the status bar. */
+  function startAssistant(): () => void {
+    let gone = false;
+    const offs: (() => void)[] = [];
+    const keep = (p: Promise<() => void>) => void p.then((off) => (gone ? off() : offs.push(off)), showError);
+    keep(
+      onAssistantCall((c) => {
+        void assistantDispatcher
+          .run(c.tool, c.args)
+          .then((r) => assistantReply(c.id, r.text, r.structured, r.isError))
+          .catch((e: unknown) => assistantReply(c.id, String(e), null, true));
+      }).then((off) => {
+        void assistantReady(true);
+        return () => {
+          void assistantReady(false);
+          off();
+        };
+      }),
+    );
+    keep(
+      onAssistantActivity(() => {
+        assistantBusy = true;
+        clearTimeout(assistantBusyTimer);
+        assistantBusyTimer = setTimeout(() => (assistantBusy = false), 1500);
+      }),
+    );
+    void assistantStatus().then((s) => (assistant = s), () => {});
+    return () => {
+      gone = true;
+      clearTimeout(assistantBusyTimer);
+      offs.forEach((off) => off());
+    };
+  }
+
   onMount(() => {
     void prefs
       .load()
@@ -6890,6 +7010,7 @@
       .then((paths) => (paths.length ? openPaths(paths) : undefined))
       .catch(showError)
       .finally(() => restartAutosave());
+    if (isTauri()) offs.push(startAssistant());
     if (isTauri()) {
       // Opened from File Explorer while running: the core brings this window forward and hands the files here.
       let gone = false;
@@ -6990,8 +7111,29 @@
     {#if freeText}
       <span title="Free space on the drive that holds the session (or Documents)">{freeText}</span>
     {/if}
+    {#if assistant?.enabled}
+      <button
+        type="button"
+        class="assistant"
+        class:busy={assistantBusy}
+        class:warn={!!assistant.problem}
+        title={assistant.problem ?? `An assistant can connect at ${assistant.url}. ${assistant.allowEdits ? "Changes are allowed." : "Read only."} Click for its activity.`}
+        onclick={() => (assistantLogOpen = true)}>{assistant.problem ? "Assistant: not listening" : assistant.allowEdits ? "Assistant on" : "Assistant on (read only)"}</button
+      >
+    {/if}
   </footer>
 </div>
+
+{#if assistantLogOpen}
+  <AssistantActivityDialog
+    status={assistant}
+    onSettings={() => {
+      assistantLogOpen = false;
+      openSettings("Assistant");
+    }}
+    onClose={() => (assistantLogOpen = false)}
+  />
+{/if}
 
 {#if shortcutsOpen}
   <KeyboardShortcutsDialog {keymap} onChange={saveKeymap} onClose={() => (shortcutsOpen = false)} />
@@ -7148,7 +7290,15 @@
 {/if}
 
 {#if settingsDraft}
-  <SettingsDialog initial={settingsDraft} onApply={applySettingsDraft} onNotice={showNotice} onClose={() => (settingsDraft = null)} />
+  <SettingsDialog
+    initial={settingsDraft}
+    page={settingsPage}
+    onApply={applySettingsDraft}
+    onNotice={showNotice}
+    onClose={() => (settingsDraft = null)}
+    onAssistantActivity={() => (assistantLogOpen = true)}
+    onAssistantStatus={(st) => (assistant = st)}
+  />
 {/if}
 
 {#if recordOptionsOpen}
@@ -7449,7 +7599,7 @@
     border: 1px solid var(--danger);
     border-radius: 4px;
     background: var(--surface-2);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 12px 30px var(--shadow);
     color: var(--text);
     font-size: 28px;
     font-weight: 600;
@@ -7515,6 +7665,28 @@
   }
 
   .warn {
+    color: var(--danger);
+  }
+
+  .status .assistant {
+    height: 16px;
+    padding: 0 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    cursor: pointer;
+  }
+  .status .assistant:hover {
+    color: var(--text);
+  }
+  .status .assistant.busy {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .status .assistant.warn {
+    border-color: var(--danger);
     color: var(--danger);
   }
 </style>

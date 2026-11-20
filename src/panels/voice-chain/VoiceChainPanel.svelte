@@ -319,7 +319,7 @@
     if (!id) return;
     if (!chain.slots.some((x) => x.id === id) && !inWave) {
       if (clip?.effects?.slots.some((x) => x.id === id) && tab !== "clip") setTab("clip");
-      else if (track?.effects?.slots.some((x) => x.id === id) && tab !== "track") setTab("track");
+      else if ((track?.effects?.slots.some((x) => x.id === id) || doc?.master?.effects?.slots.some((x) => x.id === id)) && tab !== "track") setTab("track");
       else return;
     }
     effectWindowRequest.set(null);
@@ -1309,8 +1309,8 @@
     height: 14px;
   }
   .pow.on {
-    color: #5fd38d;
-    border-color: color-mix(in srgb, #5fd38d 55%, var(--border-strong));
+    color: var(--live);
+    border-color: color-mix(in srgb, var(--live) 55%, var(--border-strong));
   }
   .slots li.over {
     box-shadow: inset 0 2px 0 var(--accent);
@@ -1432,7 +1432,7 @@
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: 6px;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 8px 28px var(--shadow-soft);
     font-size: 12px;
   }
   .fxwin header {
@@ -1583,7 +1583,7 @@
   .apply .primary {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .io {
     display: grid;

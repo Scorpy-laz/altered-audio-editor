@@ -159,7 +159,7 @@ pub struct Distortion {
 }
 
 /// The curve: input in, output in about -1..1.
-fn shaped(shape: usize, x: f32) -> f32 {
+pub(crate) fn shaped(shape: usize, x: f32) -> f32 {
     match shape {
         0 => x.tanh(),
         1 => x.clamp(-1.0, 1.0),

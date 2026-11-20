@@ -648,7 +648,7 @@
     z-index: 5000;
     display: grid;
     place-items: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--backdrop);
   }
   .dialog {
     --dialog-pad-x: 12px;
@@ -661,7 +661,7 @@
     padding: 12px;
     border: 1px solid var(--border-strong);
     background: var(--surface-2);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 16px 40px var(--shadow);
   }
   header,
   footer {

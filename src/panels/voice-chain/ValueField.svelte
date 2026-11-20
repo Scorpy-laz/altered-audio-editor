@@ -135,7 +135,7 @@
     padding: 0 3px;
     border: 1px solid var(--border-strong);
     border-radius: 2px;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--well);
     color: var(--accent);
     font: inherit;
     font-size: 11px;

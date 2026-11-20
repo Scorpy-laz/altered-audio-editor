@@ -478,7 +478,7 @@
   button.main {
     border-color: var(--accent);
     background: var(--accent);
-    color: var(--on-accent, #fff);
+    color: var(--on-accent);
   }
   .plans {
     display: grid;

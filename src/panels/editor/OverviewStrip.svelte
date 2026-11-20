@@ -13,6 +13,7 @@
 <script lang="ts">
   import { clipLength, type MediaRefDoc, type SessionDoc } from "../../stores/session";
   import { defaultTrackColor, dragOverviewEdge, overviewWindow, zoomAround, type Viewport } from "./timeline";
+  import { cssVar, themeTick } from "../../app/theme";
 
   interface Props {
     doc: SessionDoc | null;
@@ -37,11 +38,13 @@
 
   const win = $derived(overviewWindow(view, lanesWidth, total, width));
 
+  /** A theme color, cached until the surface or a color setting changes. */
   function css(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+    return cssVar(name, "#888");
   }
 
   $effect(() => {
+    void $themeTick;
     const c = canvas;
     if (!c || width <= 0) return;
     const dpr = window.devicePixelRatio || 1;
@@ -142,7 +145,7 @@
     min-width: 0;
     height: 22px;
     overflow: hidden;
-    background: #08080b;
+    background: var(--overview-bg);
     cursor: pointer;
     user-select: none;
     touch-action: none;
@@ -165,10 +168,10 @@
     top: 1px;
     bottom: 1px;
     box-sizing: border-box;
-    border: 1px solid #b4b4bc;
+    border: 1px solid var(--frame);
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+    background: var(--overlay);
+    box-shadow: 0 0 0 1px var(--frame-halo);
     pointer-events: none;
   }
 
@@ -180,8 +183,8 @@
     top: 3px;
     bottom: 3px;
     width: 3px;
-    border-left: 1px solid #b4b4bc;
-    border-right: 1px solid #b4b4bc;
+    border-left: 1px solid var(--frame);
+    border-right: 1px solid var(--frame);
   }
 
   .window::before {

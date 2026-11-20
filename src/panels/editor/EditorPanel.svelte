@@ -14,6 +14,7 @@
   import SendList from "../mixer/SendList.svelte";
   import { onDestroy, tick as nextFrame } from "svelte";
   import type { ActionRegistry } from "../../app/actions";
+  import { cssVar, themeTick } from "../../app/theme";
   import ContextMenu, { type ContextItem } from "../../app/ContextMenu.svelte";
   import type { FileDropRouter } from "../../app/filedrop";
   import { editor, type EditorState } from "../../stores/editor";
@@ -70,6 +71,7 @@
   import { KIND_COLORS, markerAt, markerCss } from "../markers/markers";
   import { markerMenuItems } from "../markers/marker-menu";
   import { Scrubber } from "./scrubber";
+  import { scrubStart, scrubStop, scrubTo } from "../../app/core";
   import { followEffect } from "./follow";
   import { quiet, type MeterLevel, type TransportState, type TransportStore } from "../../stores/transport";
   import { channelNames } from "../space/space";
@@ -633,6 +635,7 @@
   // Ruler.
   $effect(() => {
     void tick;
+    void $themeTick;
     const c = ruler;
     if (!c) return;
     const dpr = window.devicePixelRatio || 1;
@@ -644,12 +647,11 @@
     const g = c.getContext("2d");
     if (!g) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const cs = getComputedStyle(document.documentElement);
-    g.fillStyle = cs.getPropertyValue("--surface-2");
+    g.fillStyle = cssVar("--surface-2");
     g.fillRect(0, 0, w, RULER_H);
-    g.fillStyle = cs.getPropertyValue("--text-dim");
-    g.strokeStyle = cs.getPropertyValue("--border-strong");
-    g.font = `10px ${cs.getPropertyValue("--font-ui")}`;
+    g.fillStyle = cssVar("--text-dim");
+    g.strokeStyle = cssVar("--border-strong");
+    g.font = `10px ${cssVar("--font-ui")}`;
     g.textBaseline = "top";
     for (const t of ticksFor(view, w, rate, ed.timeFormat)) {
       const x = Math.round(t.x) + 0.5;
@@ -667,13 +669,13 @@
       const a = Math.max(0, xOf(sel.start, view));
       const b = Math.min(w, xOf(sel.end, view));
       if (b > a) {
-        g.fillStyle = "rgba(255, 255, 255, 0.16)";
+        g.fillStyle = cssVar("--sel-wash");
         g.fillRect(a, 0, b - a, RULER_H);
       }
     }
     for (const m of shownMarkers) {
       const mx = Math.round(xOf(m.position, view));
-      const color = m.color || cs.getPropertyValue(KIND_COLORS[m.kind]) || "#c8b040";
+      const color = m.color || cssVar(KIND_COLORS[m.kind]) || "#c8b040";
       if (m.duration > 0) {
         const ex = xOf(m.position + m.duration, view);
         if (ex >= 0 && mx <= w) {
@@ -694,14 +696,14 @@
       g.fill();
       g.fillRect(mx, 0, 1, RULER_H);
       const tw = g.measureText(m.name).width;
-      g.fillStyle = cs.getPropertyValue("--surface-2");
+      g.fillStyle = cssVar("--surface-2");
       g.fillRect(mx + 7, 0, tw + 4, 12);
-      g.fillStyle = cs.getPropertyValue("--text");
+      g.fillStyle = cssVar("--text");
       g.fillText(m.name, mx + 9, 1);
     }
     const px = xOf(playhead, view);
     if (px >= -6 && px <= w + 6) {
-      g.fillStyle = cs.getPropertyValue("--playhead");
+      g.fillStyle = cssVar("--playhead");
       // Same pixel column as the line in the lanes, which fills [round(px), round(px) + 1].
       const cx = Math.round(px) + 0.5;
       g.beginPath();
@@ -799,8 +801,8 @@
     if (cur?.view.selection) session.setView({ ...cur.view, selection: null });
     const at = (clientX: number) => Math.max(0, sampleAt(Math.max(0, Math.min(lanesWidth, clientX - left)), view));
     let last = at(e.clientX);
-    // With Play audio while scrubbing on, the sound follows the drag.
-    const scrub = new Scrubber(transport, settings.current.scrubAudio);
+    // With Play audio while scrubbing on, the sound follows the drag like tape.
+    const scrub = new Scrubber(transport, { start: (p) => scrubStart("session", p), to: scrubTo, stop: scrubStop }, settings.current.scrubAudio);
     scrub.move(last);
     // The line follows the pointer at once; the playhead itself moves once
     // a frame at most, and playback jumps there when the button is let go.
@@ -3333,7 +3335,7 @@
   .env-tip {
     position: fixed;
     z-index: 4000;
-    /* Audition's readout: a light box under the pointer, dark text. */
+    /* The readout: a light box under the pointer, dark text, on every surface. */
     transform: translate(-50%, 22px);
     padding: 3px 9px;
     border: 1px solid #7a7a72;
@@ -3606,7 +3608,7 @@
 
   .selcount {
     font-size: 11px;
-    color: var(--text-dim, #a0a0a8);
+    color: var(--text-dim);
     white-space: nowrap;
     padding: 0 6px;
   }
@@ -3649,9 +3651,9 @@
     right: 0;
     left: 0;
     box-sizing: border-box;
-    border: 1px solid #b4b4bc;
+    border: 1px solid var(--frame);
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--thumb-wash);
     pointer-events: none;
   }
 
@@ -3662,7 +3664,7 @@
     right: 1px;
     height: 5px;
     border-radius: 2px;
-    background: repeating-linear-gradient(180deg, #d0d0d6 0 1px, transparent 1px 2px);
+    background: repeating-linear-gradient(180deg, var(--grip) 0 1px, transparent 1px 2px);
     opacity: 0.85;
   }
 
@@ -3756,7 +3758,7 @@
     width: 10px;
     padding: 2px 0;
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
     font-size: 8px;
     font-weight: 700;
     line-height: 10px;
@@ -3767,7 +3769,7 @@
   }
 
   .header.selected .name {
-    color: #fff;
+    color: var(--text-strong);
     font-weight: 600;
   }
 
@@ -3813,7 +3815,7 @@
 
   .ms.on {
     background: var(--accent-dim);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .ms.sync {
@@ -4031,16 +4033,16 @@
     position: absolute;
     z-index: 3;
     box-sizing: border-box;
-    border: 1px solid var(--accent, #6ab0ff);
-    background: color-mix(in srgb, var(--accent, #6ab0ff) 22%, transparent);
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
     pointer-events: none;
   }
 
   .selBox {
     position: absolute;
     z-index: 4;
-    border: 1px dashed rgba(255, 255, 255, 0.85);
-    background: rgba(255, 255, 255, 0.05);
+    border: 1px dashed var(--marquee);
+    background: var(--marquee-wash);
     pointer-events: none;
   }
 
@@ -4062,7 +4064,7 @@
   .lanes.dropping {
     outline: 2px dashed var(--accent);
     outline-offset: -2px;
-    background: rgba(63, 169, 245, 0.06);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
   }
 
   .lane {
@@ -4086,7 +4088,7 @@
     padding: 1px 4px;
     overflow: hidden;
     background: color-mix(in srgb, var(--accent) 55%, transparent);
-    color: #fff;
+    color: var(--on-accent);
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -4215,9 +4217,9 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    background: rgba(255, 255, 255, 0.1);
-    border-left: 1px solid rgba(255, 255, 255, 0.45);
-    border-right: 1px solid rgba(255, 255, 255, 0.45);
+    background: var(--range-wash);
+    border-left: 1px solid var(--range-edge);
+    border-right: 1px solid var(--range-edge);
     pointer-events: none;
   }
 

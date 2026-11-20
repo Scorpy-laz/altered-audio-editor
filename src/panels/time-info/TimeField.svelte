@@ -144,7 +144,7 @@
   .tf.edit {
     width: 100%;
     border-color: var(--accent);
-    background: var(--surface-0, #000);
+    background: var(--surface-0);
     color: var(--text);
     user-select: text;
   }

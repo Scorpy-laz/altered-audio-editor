@@ -23,6 +23,7 @@ mod eq;
 mod expander;
 mod filters;
 mod gapfill;
+pub mod mastering;
 mod modulation;
 mod phase;
 pub mod phase_curve;
@@ -220,6 +221,7 @@ pub fn catalog() -> Vec<EffectInfo> {
         stereo::mixer_info(),
         stereo::expander_info(),
         stereo::distortion_info(),
+        mastering::info(),
         restore::noise_info(),
         speech_denoiser::info(),
         speech_denoiser::deep_info(),
@@ -501,6 +503,7 @@ pub fn build(slot: &EffectSlot, rate: u32) -> Option<Box<dyn Processor>> {
         "altaudio.channel-mixer" => Box::new(stereo::Mixer::new(&p)),
         "altaudio.stereo-expander" => Box::new(stereo::Expander::new(&p, rate)),
         "altaudio.distortion" => Box::new(stereo::Distortion::new(&p, rate)),
+        mastering::ID => Box::new(mastering::Mastering::new(&p, rate)),
         "altaudio.phase_rotate" => Box::new(phase::PhaseRotate::new(&p, rate)),
         "altaudio.phase_curve" => Box::new(phase_curve::PhaseCurve::new(&p, rate)),
         "altaudio.dynamics_curve" => Box::new(curve_dynamics::DynamicsCurve::new(&p, rate)),

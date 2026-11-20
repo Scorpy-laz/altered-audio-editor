@@ -98,10 +98,10 @@
     cursor: pointer;
   }
   nav button:hover {
-    background: var(--surface-3, rgba(255, 255, 255, 0.06));
+    background: var(--surface-3);
   }
   nav button.on {
-    background: var(--accent-dim, rgba(255, 255, 255, 0.12));
+    background: var(--accent-dim);
     font-weight: 600;
   }
   .none {

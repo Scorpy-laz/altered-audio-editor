@@ -158,7 +158,7 @@
     margin: 2px 22px 4px 6px;
     border: 1px solid var(--border);
     border-radius: 2px;
-    background: var(--surface-0, rgba(0, 0, 0, 0.2));
+    background: var(--surface-0);
     font-size: var(--font-size-small);
   }
   .top {
@@ -243,7 +243,7 @@
     height: 12px;
   }
   .pow.on {
-    color: #5fd38d;
+    color: var(--live);
   }
   .arrow {
     flex: none;
