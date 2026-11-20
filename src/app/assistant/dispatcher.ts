@@ -16,6 +16,8 @@
 
 import tools from "./tools.json";
 import { AssistantStep, NoChange } from "./step";
+import { clipTools, colorName, type ClipToolContext } from "./clip-tools";
+import { autoMode } from "../../panels/editor/automation";
 import type { UndoStack } from "../../commands";
 import type { EffectInfo, EffectParamInfo, MixdownRequest, MixdownResult } from "../core";
 import type { LoudnessReport } from "../loudness";
@@ -24,7 +26,7 @@ import type { CommandRunner, MediaItem } from "../../stores/media-pool";
 import { chainOf, addSlot, applyPreset, addsOne, clampParam, formatParam, paramValue, removeSlot, moveSlotTo, setSlot, newSlot, BUILTIN_PRESETS, PRESET_INFO, MAX_SLOTS, type ChainPreset } from "../../panels/voice-chain/chain";
 import type { EffectPreset } from "../../panels/voice-chain/effect-presets";
 import { newMarker, nextMarkerName } from "../../panels/markers/markers";
-import { clipLength, sessionEnd, type EffectChainDoc, type EffectTarget, type MarkerKind, type Op, type SessionDoc, type SessionStore, type TrackDoc, type BusDoc } from "../../stores/session";
+import { clipLength, sessionEnd, stretchOf, type EnvelopeDoc, type EffectChainDoc, type EffectTarget, type MarkerKind, type Op, type SessionDoc, type SessionStore, type TrackDoc, type BusDoc } from "../../stores/session";
 
 export interface ToolResult {
   text: string;
@@ -265,7 +267,26 @@ export class AssistantDispatcher {
 
   // --- tools ---
 
+  /** What the clip and automation tools use from here. */
+  private clipContext(): ClipToolContext {
+    const deps = () => this.d;
+    return {
+      get session() {
+        return deps().session;
+      },
+      doc: () => this.doc(),
+      track: (doc, ref) => this.track(doc, ref),
+      bus: (doc, ref) => this.bus(doc, ref),
+      edit: (label, body) => this.edit(label, body),
+      catalog: () => this.d.catalog(),
+      newId: () => this.d.newId(),
+      error: (m) => new ToolError(m),
+      noChange: (m) => new NoChange(m),
+    };
+  }
+
   private readonly handlers: Record<string, (a: Args) => Promise<ToolResult>> = {
+    ...clipTools(this.clipContext()),
     get_session: async (a) => {
       const doc = this.doc();
       const withClips = bool(a.include_clips) ?? true;
@@ -273,6 +294,13 @@ export class AssistantDispatcher {
       const fxName = (id: string) => catalog.find((e) => e.id === id)?.name ?? id;
       const fx = (c: EffectChainDoc | undefined) => chainOf(c).slots.map((s) => ({ slot_id: s.id, effect: s.effect, name: fxName(s.effect), bypassed: !s.enabled }));
       const media = new Map(doc.media.map((m) => [m.id, m]));
+      // Which settings move over time; get_automation gives the points.
+      const lanes = (envs: EnvelopeDoc[]) =>
+        envs.map((e) => {
+          const t = e.target;
+          const what = t.type === "effect_param" ? { parameter: "effect", slot_id: t.slot_id, control: t.param } : t.type === "space" ? { parameter: "space", space_setting: t.param } : { parameter: t.type };
+          return { ...what, points: e.points.length, ...(e.enabled ? {} : { enabled: false }) };
+        });
       const output = (o: TrackDoc["output"]) => (!o || o.type === "master" ? "master" : o.type === "bus" ? `bus ${o.bus_id}` : "none");
       const view = doc.view;
       const playing = this.d.transport.current.playing;
@@ -297,6 +325,7 @@ export class AssistantDispatcher {
           solo: t.solo,
           output: output(t.output),
           effects: fx(t.effects),
+          ...(t.envelopes?.length ? { automation: lanes(t.envelopes), automation_mode: autoMode(t) } : {}),
           clip_count: t.clips.length,
           ...(withClips
             ? {
@@ -310,13 +339,24 @@ export class AssistantDispatcher {
                     file: m?.path ?? null,
                     gain_db: c.gain_db,
                     muted: c.muted,
+                    ...(c.locked ? { locked: true } : {}),
+                    color: colorName(c.color),
+                    ...(c.group ? { group: c.group } : {}),
+                    source_start_seconds: round(c.source_in / (m?.sample_rate || doc.sample_rate)),
+                    source_end_seconds: round(c.source_out / (m?.sample_rate || doc.sample_rate)),
+                    ...(m && m.length > 0 ? { file_duration_seconds: round(m.length / (m.sample_rate || doc.sample_rate)) } : {}),
+                    ...(c.looped ? { looped: true } : {}),
+                    ...(c.stretch && !c.looped ? { stretch: { ratio: round(stretchOf(c), 4), preserve_pitch: c.stretch.keep_pitch, ...(c.stretch.pitch ? { pitch_semitones: c.stretch.pitch } : {}) } } : {}),
+                    ...(c.fade_in.length > 0 ? { fade_in: { seconds: this.sec(c.fade_in.length, doc), shape: c.fade_in.shape, bend: c.fade_in.curve } } : {}),
+                    ...(c.fade_out.length > 0 ? { fade_out: { seconds: this.sec(c.fade_out.length, doc), shape: c.fade_out.shape, bend: c.fade_out.curve } } : {}),
+                    ...(c.envelopes?.length ? { automation: lanes(c.envelopes) } : {}),
                     ...(chainOf(c.effects).slots.length ? { effects: fx(c.effects) } : {}),
                   };
                 }),
               }
             : {}),
         })),
-        buses: (doc.buses ?? []).map((b) => ({ id: b.id, name: b.name, volume_db: b.volume_db, pan: b.pan, muted: b.muted, solo: b.solo, output: output(b.output), effects: fx(b.effects) })),
+        buses: (doc.buses ?? []).map((b) => ({ id: b.id, name: b.name, volume_db: b.volume_db, pan: b.pan, muted: b.muted, solo: b.solo, output: output(b.output), effects: fx(b.effects), ...((b.envelopes as EnvelopeDoc[] | undefined)?.length ? { automation: lanes(b.envelopes as EnvelopeDoc[]), automation_mode: autoMode(b) } : {}) })),
         master: { volume_db: doc.master?.volume_db ?? 0, effects: fx(doc.master?.effects) },
         markers: [...doc.markers]
           .sort((x, y) => x.position - y.position)

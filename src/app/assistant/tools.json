@@ -20,7 +20,7 @@
       "title": "Get session",
       "edits": false,
       "timeoutSec": 20,
-      "description": "Reads the open multitrack session: name, file, sample rate, length, whether it has unsaved changes, playhead, time selection, whether it is playing, every track (id, name, volume dB, pan, mute, solo, output, its Voice Chain effects and its clips with start and end times), bus tracks, the master and markers. All times are in seconds from the session start. Call this first to learn the ids other tools take.",
+      "description": "Reads the open multitrack session: name, file, sample rate, length, whether it has unsaved changes, playhead, time selection, whether it is playing, every track (id, name, volume dB, pan, mute, solo, output, its Voice Chain effects, which automation lanes it has and its clips), bus tracks, the master and markers. Each clip lists its start and end on the timeline, where it starts and ends in its audio file (source_start_seconds, source_end_seconds, file_duration_seconds), gain, mute, lock, color, group, time stretch, fades, which envelopes it has and its effects. All times are in seconds from the session start. Call this first to learn the ids other tools take.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -322,6 +322,244 @@
           "position_seconds": { "type": "number", "minimum": 0, "description": "Default 0." }
         },
         "required": ["paths"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "split_clip",
+      "title": "Split clips",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Cuts clips in two at given times, as one undoable step, like the Razor tool. Give exactly one of: clip_id (cuts that clip at every time in times_seconds, which must fall inside it), tracks (cuts every clip on those tracks that spans each time) or all_tracks. Nothing is removed: each cut leaves two clips that play exactly as before; envelopes and effects go with each piece, the fade in stays on the first piece and the fade out on the last. Locked clips are not cut. Returns the ids of the pieces; the left piece keeps the original id. To remove a stretch of audio, split at both ends and then delete_clips the piece in between (ripple true closes the gap).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_id": { "type": "string", "minLength": 1, "maxLength": 200, "description": "One clip to cut, from get_session." },
+          "tracks": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 100, "description": "Track ids or exact names: every clip on them under each time is cut." },
+          "all_tracks": { "type": "boolean", "description": "true cuts every audio clip under each time on every track." },
+          "times_seconds": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 1, "maxItems": 200, "description": "Where to cut, in seconds from the session start (not from the clip start)." }
+        },
+        "required": ["times_seconds"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "delete_clips",
+      "title": "Delete clips",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Removes clips from their tracks as one undoable step. Only the clips leave the session: the audio files on disk are never deleted or changed, and they stay in the session's Files panel. With ripple true, later clips on the same tracks move left to close the gap each deleted clip leaves (a locked clip in the way stops it).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_ids": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 500 },
+          "ripple": { "type": "boolean", "description": "Close the gaps. Default false (the space stays empty)." }
+        },
+        "required": ["clip_ids"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "move_clip",
+      "title": "Move clip",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Moves one clip to a new start time and/or onto another audio track, as one undoable step. Its length, audio, envelopes, fades and effects move with it. Only this clip moves, even when it is grouped with others. A clip moved over another lands on top of it. Locked clips do not move.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "start_seconds": { "type": "number", "minimum": 0, "description": "New start, in seconds from the session start. Default: where it is." },
+          "track": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Track id or exact name to move it to. Default: its own track." }
+        },
+        "required": ["clip_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "trim_clip",
+      "title": "Trim clip",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Moves a clip's left and/or right edge to a new time, as one undoable step, like dragging the edges. The audio stays where it is in time: a later start hides the beginning, an earlier start shows more of the file. Edges stop at the ends of the audio file and the clip is never shorter than 10 ms; the answer says when an edge stopped short. Envelope points keep their place in time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "start_seconds": { "type": "number", "minimum": 0, "description": "New left edge, seconds from the session start." },
+          "end_seconds": { "type": "number", "minimum": 0, "description": "New right edge, seconds from the session start." }
+        },
+        "required": ["clip_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_clip_gain",
+      "title": "Set clip gain",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Sets the gain (a fixed level change for the whole clip, in dB, -96 to +24, 0 is unchanged) and/or mutes or unmutes one or more clips, as one undoable step. A clip's volume envelope, if it has one, works on top of its gain.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_ids": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 500 },
+          "gain_db": { "type": "number", "minimum": -96, "maximum": 24 },
+          "muted": { "type": "boolean" }
+        },
+        "required": ["clip_ids"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_clip_fades",
+      "title": "Set clip fades",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Sets a clip's fade in and fade out, as one undoable step. Lengths are in seconds (0 removes the fade); the two fades together never cover more than the clip, so a fade that would overlap the other is shortened and the answer says so. Shapes: linear, cosine (S curve, gentle at both ends), logarithmic (rises fast, then eases), exponential (slow start, fast finish), equal_power (keeps the level steady across a crossfade). Bend, -1 to 1 (0 neutral), reshapes the curve: positive bows it toward full level (louder sooner in a fade in, longer before a fade out drops), negative toward silence. Give only what should change.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "fade_in_seconds": { "type": "number", "minimum": 0 },
+          "fade_out_seconds": { "type": "number", "minimum": 0 },
+          "fade_in_shape": { "type": "string", "enum": ["linear", "cosine", "logarithmic", "exponential", "equal_power"] },
+          "fade_out_shape": { "type": "string", "enum": ["linear", "cosine", "logarithmic", "exponential", "equal_power"] },
+          "fade_in_bend": { "type": "number", "minimum": -1, "maximum": 1 },
+          "fade_out_bend": { "type": "number", "minimum": -1, "maximum": 1 }
+        },
+        "required": ["clip_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_clip_color",
+      "title": "Set clip color",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Colors one or more clips in the Editor, as one undoable step. color is a palette color by name (green, blue, purple, orange, yellow, pink) or number (1 to 6, in that order), any color as #rrggbb, or track to go back to the track's color. Color only changes how clips look, never the sound.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_ids": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 500 },
+          "color": { "type": "string", "minLength": 1, "maxLength": 20 }
+        },
+        "required": ["clip_ids", "color"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "group_clips",
+      "title": "Group clips",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Puts two or more clips (on any tracks) into one new group, as one undoable step, as Clip > Group Clips does. In the Editor, clicking or dragging one clip of a group selects and moves them all. A clip that was in another group leaves it. get_session shows each clip's group id. move_clip and the other assistant tools still work on single clips.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_ids": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 2, "maxItems": 500 }
+        },
+        "required": ["clip_ids"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ungroup_clips",
+      "title": "Ungroup clips",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Takes clips out of their groups, as one undoable step. Other clips of the same group stay grouped with each other.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_ids": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 500 }
+        },
+        "required": ["clip_ids"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "stretch_clip",
+      "title": "Time stretch clip",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Changes how long a clip plays without changing which part of its audio file it plays, as one undoable step, like Clip > Time Stretch. The file on disk is never changed. Give length_seconds (the new length) or ratio (new length over the clip's natural, unstretched length: 1.25 plays 25 percent longer and slower, 0.8 shorter and faster; 0.25 to 4). preserve_pitch true (the default, best for speech) keeps the pitch; false plays it like tape at another speed, so the pitch rises when faster and falls when slower. pitch_semitones (-24 to 24, only with preserve_pitch true) shifts the pitch on its own, also at the natural length. remove true goes back to the natural length and pitch. The left edge stays put; fades and the clip's volume and pan envelopes stretch with it. Looping and locked clips cannot be stretched.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "length_seconds": { "type": "number", "minimum": 0.001 },
+          "ratio": { "type": "number", "minimum": 0.25, "maximum": 4 },
+          "preserve_pitch": { "type": "boolean" },
+          "pitch_semitones": { "type": "number", "minimum": -24, "maximum": 24 },
+          "remove": { "type": "boolean" }
+        },
+        "required": ["clip_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_automation",
+      "title": "Get automation",
+      "edits": false,
+      "timeoutSec": 20,
+      "description": "Reads the settings that move over time on a clip, a track or a bus: each lane (volume, pan, or an effect control given by slot_id and control) with its points as time_seconds (from the session start, also for clips) and value (dB for volume, -100 left to 100 right for pan, the control's own unit for effects), plus can_automate: every setting that set_automation can move there, with its range. For tracks and buses also the automation mode (read plays the lanes, off ignores them) and the fader's own volume and pan.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "target": "#shared:target" },
+        "required": ["target"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_automation",
+      "title": "Set automation",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Makes a setting move over time, as one undoable step, by writing points into its lane. Targets: a clip (its own envelope: volume in dB is added to the clip's gain, 0 dB unchanged and -60 silent; pan places the clip left or right before the track's pan; an effect control of the clip's Voice Chain), a track or a bus (a lane: volume in dB replaces the fader while it plays, pan replaces the pan knob, or an effect control of its Voice Chain). The master has no lanes. parameter is volume, pan or effect; for effect give slot_id (get_chain) and control (the control's key; get_automation lists those that can move). Points: time_seconds from the session start (for a clip they must fall inside it) and value in the setting's own units (volume -60 to 12 dB, pan -100 left to 100 right, an effect control within its min and max; values outside are brought into range and the answer says so). The value moves in a straight line from one point to the next and holds flat before the first point and after the last. For a sudden jump, put two points close together (for example 0.01 s apart). mode replace_range (default) removes the lane's old points from the first new time to the last and puts the new ones in; replace_all replaces the whole lane; add keeps the old points and adds these (a point at the same time is replaced). The lane is switched on so it is heard, and a track or bus that was recording automation goes back to Read; a track's lanes are shown.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": "#shared:target",
+          "parameter": { "type": "string", "enum": ["volume", "pan", "effect"] },
+          "slot_id": { "type": "string", "minLength": 1, "maxLength": 200, "description": "For parameter effect: the effect's slot_id from get_chain." },
+          "control": { "type": "string", "minLength": 1, "maxLength": 200, "description": "For parameter effect: the control's key, such as ceiling or frequency." },
+          "points": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "time_seconds": { "type": "number", "minimum": 0, "description": "Seconds from the session start." },
+                "value": { "type": "number", "description": "In the setting's own units." }
+              },
+              "required": ["time_seconds", "value"],
+              "additionalProperties": false
+            }
+          },
+          "mode": { "type": "string", "enum": ["replace_range", "replace_all", "add"], "description": "Default replace_range." }
+        },
+        "required": ["target", "parameter", "points"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "clear_automation",
+      "title": "Clear automation",
+      "edits": true,
+      "timeoutSec": 30,
+      "description": "Removes automation points from a clip, a track or a bus, as one undoable step: one setting's lane (parameter, with slot_id and control for an effect) or every lane when parameter is left out, over the whole time or only from start_seconds to end_seconds (seconds from the session start, both included). A lane left with no points is removed, and the setting goes back to its fixed value (the fader, the pan knob, the effect's own setting).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": "#shared:target",
+          "parameter": { "type": "string", "enum": ["volume", "pan", "effect"] },
+          "slot_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "control": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "start_seconds": { "type": "number", "minimum": 0 },
+          "end_seconds": { "type": "number", "minimum": 0 }
+        },
+        "required": ["target"],
         "additionalProperties": false
       }
     },

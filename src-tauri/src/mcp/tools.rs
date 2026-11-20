@@ -369,6 +369,53 @@ mod tests {
     }
 
     #[test]
+    fn clip_and_automation_tools_check_their_points() {
+        for name in [
+            "split_clip",
+            "delete_clips",
+            "move_clip",
+            "trim_clip",
+            "set_clip_gain",
+            "set_clip_fades",
+            "set_clip_color",
+            "group_clips",
+            "ungroup_clips",
+            "stretch_clip",
+            "set_automation",
+            "clear_automation",
+        ] {
+            assert!(find(name).unwrap().edits, "{name}");
+        }
+        assert!(!find("get_automation").unwrap().edits);
+        let s = &find("set_automation").unwrap().input_schema;
+        validate(
+            s,
+            &json!({"target": {"kind": "clip", "id": "c"}, "parameter": "volume",
+                    "points": [{"time_seconds": 1.5, "value": -6}]}),
+        )
+        .unwrap();
+        let e = validate(
+            s,
+            &json!({"target": {"kind": "track", "id": "t"}, "parameter": "volume",
+                    "points": [{"time_seconds": 1}]}),
+        )
+        .unwrap_err();
+        assert!(e.contains("points[0].value"), "{e}");
+        let e = validate(
+            s,
+            &json!({"target": {"kind": "track", "id": "t"}, "parameter": "gain", "points": []}),
+        )
+        .unwrap_err();
+        assert!(e.contains("parameter"), "{e}");
+        let s = &find("split_clip").unwrap().input_schema;
+        let e = validate(s, &json!({"clip_id": "c", "times_seconds": [-1]})).unwrap_err();
+        assert!(e.contains("times_seconds[0]"), "{e}");
+        let s = &find("stretch_clip").unwrap().input_schema;
+        let e = validate(s, &json!({"clip_id": "c", "ratio": 10})).unwrap_err();
+        assert!(e.contains("at most 4"), "{e}");
+    }
+
+    #[test]
     fn a_missing_shared_schema_is_an_error() {
         let bad = r##"{"tools":[{"name":"x","inputSchema":{"type":"object","properties":{"a":"#shared:nope"}}}]}"##;
         assert!(parse(bad).is_err());
