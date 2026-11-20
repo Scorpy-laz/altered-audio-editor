@@ -1686,6 +1686,15 @@ Effect settings windows open in the middle of the screen and have a light title 
 - Edit > Keyboard Shortcuts > Import from Audition reads Audition's exported XML. Each Audition command that has a matching action here (96 of them, matched by the keys Audition ships) takes the export's keys; our own extra default keys that Audition does not use stay (so Ctrl+F4 still closes). Any other action holding an imported key gives it up. Commands with no matching action and keys the reader can't decode are counted in the notice, never dropped silently.
 - Importing your own export changes three actions (extra Audition keys on Deselect, Add Cue Marker and Settings).
 
+## 2026-11-20: Light panel brightness
+
+- Settings > Appearance > Panel brightness has a third choice, Light, and it is the default for new settings (asked for by a user who cannot work long on dark interfaces). Standard and Classic stay as they were; saved settings keep their choice. Stored as `surface: "light"`, applied as `:root[data-surface="light"]`; `index.html` starts on Light so a new install does not flash dark.
+- Light values: neutral greys (panels `#f3f3f5`, raised dialogs and menus lighter, buttons a step darker), text `#1d1d22` (about 15:1 on panels), dim text about 7:1, faint text about 4:1, a deeper blue accent, an orange playhead that reads on light lanes, and a dark dialog title bar so a pop-up stands out. Clip colors are deeper; clip bodies tint the lane and the waveform is the clip color mixed toward black instead of white.
+- Every color the interface draws now comes from a token in `tokens.css`, canvases included. New semantic tokens (backdrop, shadow, shade, well, overlay, selection washes, frames, graph background, grid and curves, clip text, edges, outlines, fades, envelope lines) carry the old fixed values on Standard and Classic, so those looks are unchanged; Light sets its own. Canvases read tokens through `src/app/theme.ts`: values are cached, the cache drops when the root's `data-surface` or inline color overrides change, and `themeTick` makes each drawing redraw at once.
+- Left fixed on purpose: the spectrogram and Phase Wheel stay dark scopes (their palettes run from black for silence), the video area stays black, meter green, yellow and red stay, the vintage hardware faces (tube preamp, needle meter, big knobs, amp) keep their own look, and small handles drawn as a dark chip with light text (or the reverse) keep both colors so they read on any lane. The right-click menu was already light on every surface.
+- The native window frame follows: `getCurrentWindow().setTheme("light" | "dark")` when settings apply, with `core:window:allow-set-theme` added to the capability, and `tauri.conf.json` starts the window Light.
+- About shows `logo-light.png` on Light and `logo-dark.png` otherwise.
+
 ## 2026-10-30 0.9.5 part C: theme lift
 
 - Surface, border, lane and header tokens in `styles/tokens.css` are one to two steps lighter (Audition-like charcoal) and text is slightly brighter. The scope graphs (EQ, phase, spectrum) stay deep dark on purpose.

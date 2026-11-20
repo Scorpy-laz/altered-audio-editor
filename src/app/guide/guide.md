@@ -383,6 +383,7 @@ View > Podcast Mode switches to the Default workspace and turns Music Mode off.
 Open Settings with Edit > Settings.
 
 - Pages cover audio hardware, playback and recording, appearance, colors and where files go.
+- Appearance > Panel brightness picks the look: Light (pale grey panels, dark text, the default), Standard (charcoal) or Classic (darker). The waveforms, graphs, rulers and the window frame change with it at once.
 - Every setting you see does something. Channel Routing has a Mono option that plays both sides together on one output, for a single speaker.
 - The cache, recordings and other working files each have a place you can change.
 
