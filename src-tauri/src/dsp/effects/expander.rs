@@ -47,24 +47,66 @@ pub struct Expander {
     held: u32,
     /// Current cut in dB, 0 or negative.
     cut: f32,
+    rate: u32,
+}
+
+/// Expander settings in their own units, so the Dynamics suite can drive one too.
+pub(crate) struct ExpanderValues {
+    pub gate: bool,
+    pub threshold_db: f64,
+    pub ratio: f64,
+    pub range_db: f64,
+    pub attack_ms: f64,
+    pub hold_ms: f64,
+    pub release_ms: f64,
+}
+
+impl ExpanderValues {
+    fn from(p: &Params) -> Self {
+        Self {
+            gate: p.index("mode") == 1,
+            threshold_db: p.get("threshold"),
+            ratio: p.get("ratio"),
+            range_db: p.get("range"),
+            attack_ms: p.get("attack"),
+            hold_ms: p.get("hold"),
+            release_ms: p.get("release"),
+        }
+    }
 }
 
 impl Expander {
     pub fn new(p: &Params, rate: u32) -> Self {
-        let per_ms = f64::from(rate) / 1000.0;
-        Self {
-            gate: p.index("mode") == 1,
-            threshold_db: p.get("threshold") as f32,
-            slope: (p.get("ratio") - 1.0) as f32,
-            range_db: p.get("range") as f32,
-            open: smooth(p.get("attack"), rate),
-            close: smooth(p.get("release"), rate),
-            hold: (p.get("hold") * per_ms) as u32,
+        let mut e = Self {
+            gate: false,
+            threshold_db: 0.0,
+            slope: 0.0,
+            range_db: 0.0,
+            open: 0.0,
+            close: 0.0,
+            hold: 0,
             env_decay: (-1.0 / (0.005 * f64::from(rate))).exp() as f32,
             env: 0.0,
             held: 0,
             cut: 0.0,
-        }
+            rate,
+        };
+        e.set(&ExpanderValues::from(p));
+        e
+    }
+
+    /// New settings while running. The cut is already smoothed by the
+    /// attack and release, so a moving threshold or ratio never steps.
+    pub(crate) fn set(&mut self, v: &ExpanderValues) {
+        let per_ms = f64::from(self.rate) / 1000.0;
+        self.gate = v.gate;
+        self.threshold_db = v.threshold_db as f32;
+        self.slope = (v.ratio - 1.0) as f32;
+        self.range_db = v.range_db as f32;
+        self.open = smooth(v.attack_ms, self.rate);
+        self.close = smooth(v.release_ms, self.rate);
+        self.hold = (v.hold_ms * per_ms) as u32;
+        self.held = self.held.min(self.hold);
     }
 
     fn run(&mut self, buf: &mut [f32], key: Option<&[f32]>) {
@@ -124,6 +166,11 @@ impl Processor for Expander {
         self.env = 0.0;
         self.held = 0;
         self.cut = 0.0;
+    }
+
+    fn update(&mut self, p: &Params) -> bool {
+        self.set(&ExpanderValues::from(p));
+        true
     }
 }
 
@@ -212,6 +259,31 @@ mod tests {
         assert!(at(310) > 0.0004, "{}", at(310));
         // ... and well after, it is shut.
         assert!(at(900) < 0.0005 * 0.1, "{}", at(900));
+    }
+
+    #[test]
+    fn a_ramped_threshold_keeps_the_cut_continuous() {
+        use super::super::{info, Params};
+        let i = info("altaudio.expander").unwrap();
+        let mut s = slot("altaudio.expander", &[("ratio", 3.0), ("threshold", -40.0)]);
+        let mut fx = build(&s, 48_000).unwrap();
+        let amp = 0.003f32; // about -50 dB, under the threshold all along
+        let mut gains = Vec::new();
+        for b in 0..400 {
+            let t = (f64::from(b) / 400.0).min(1.0);
+            s.params.insert("threshold".into(), -40.0 + 10.0 * t);
+            assert!(fx.update(&Params::resolve(&i, &s.params)));
+            let mut buf = vec![amp; 2 * 256];
+            fx.process(&mut buf);
+            gains.extend(buf.iter().step_by(2).map(|v| v / amp));
+        }
+        assert!(gains.iter().all(|g| g.is_finite()));
+        let step = gains
+            .windows(2)
+            .fold(0f32, |m, w| m.max((w[1] - w[0]).abs()));
+        assert!(step < 0.002, "{step}");
+        // Cut all along, deeper as the threshold rises: never back to unity.
+        assert!(gains[20_000..].iter().all(|g| *g < 0.5));
     }
 
     #[test]

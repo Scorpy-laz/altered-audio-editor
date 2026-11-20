@@ -141,6 +141,21 @@ impl TruePeakLimiter {
         lim
     }
 
+    /// New ceiling and release while running, keeping the delay line and
+    /// the gain state. False (and nothing changed) when the look-ahead
+    /// would change, since that changes the latency.
+    pub fn set(&mut self, sample_rate: u32, settings: LimiterSettings) -> bool {
+        let s = settings.clamped();
+        let sr = sample_rate.max(8000) as f64;
+        let look = ((s.lookahead_ms as f64 / 1000.0 * sr).round() as usize).max(HALF);
+        if look != self.look {
+            return false;
+        }
+        self.ceiling = 10f32.powf(s.ceiling_db / 20.0);
+        self.release = 1.0 - (-1.0 / (s.release_ms as f64 / 1000.0 * sr)).exp();
+        true
+    }
+
     /// Back to the start: no gain reduction, silence in the delay line.
     pub fn reset(&mut self) {
         for ch in &mut self.ring {

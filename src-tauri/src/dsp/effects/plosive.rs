@@ -116,6 +116,22 @@ impl Processor for Plosive {
         }
     }
 
+    fn update(&mut self, p: &Params) -> bool {
+        let freq = p.get("freq");
+        if freq != self.freq {
+            let low = Coeffs::new(Shape::LowPass, self.rate, freq, 0.707, 0.0);
+            self.low.l.set(low);
+            self.low.r.set(low);
+            self.freq = freq;
+            // Re-aim the shelf at the new corner on its next step.
+            self.cut = -1.0;
+        }
+        self.trigger = p.get("trigger") as f32;
+        self.most = p.get("reduction") as f32;
+        self.release = coef(p.get("release"), self.rate);
+        true
+    }
+
     fn reset(&mut self) {
         self.low.reset();
         self.body_hp.reset();
@@ -212,6 +228,32 @@ mod tests {
         let out = run(&[("reduction", 6.0)], input.clone());
         let cut = db(level_at(&out[48_000..], 80.0)) - db(level_at(&input[48_000..], 80.0));
         assert!(cut > -8.0 && cut < -3.0, "{cut}");
+    }
+
+    #[test]
+    fn moving_settings_keep_the_cut_going() {
+        use super::super::{info, Params};
+        let i = info("altaudio.plosive").unwrap();
+        let mut s = slot("altaudio.plosive", &[]);
+        let mut fx = build(&s, 48_000).unwrap();
+        let input = tones(&[(1000.0, 0.1), (80.0, 0.6)], 2.0);
+        let mut out = input.clone();
+        for (b, c) in out.chunks_mut(2 * 256).enumerate() {
+            s.params.insert("freq".into(), 100.0 + b as f64 * 0.2);
+            s.params.insert("trigger".into(), 6.0 + b as f64 * 0.01);
+            assert!(fx.update(&Params::resolve(&i, &s.params)));
+            fx.process(c);
+        }
+        assert!(out.iter().all(|v| v.is_finite()));
+        let cut = db(level_at(&out[96_000..], 80.0)) - db(level_at(&input[96_000..], 80.0));
+        // About what a fresh one at the settings the ramp passes through
+        // gives, not the full thump of a detector that keeps starting over.
+        let mid = run(&[("freq", 118.0), ("trigger", 7.0)], input.clone());
+        let want = db(level_at(&mid[96_000..], 80.0)) - db(level_at(&input[96_000..], 80.0));
+        assert!(
+            cut < -3.0 && (cut - want).abs() < 2.0,
+            "thump cut {cut}, fresh {want}"
+        );
     }
 
     #[test]

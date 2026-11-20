@@ -10,8 +10,11 @@
 use std::collections::BTreeMap;
 
 use super::{
-    dynamics::{compressor_info, gate_info, limiter_info, Compressor, Gate, Limiter},
-    expander, num, toggle, EffectInfo, Params, Processor,
+    dynamics::{
+        compressor_info, gate_info, limiter_info, Compressor, Gate, Limiter, LimiterValues,
+    },
+    expander::{self, ExpanderValues},
+    num, toggle, EffectInfo, Params, Processor,
 };
 
 pub const SUITE: &str = "altaudio.dynamics_suite";
@@ -120,6 +123,68 @@ impl Suite {
     }
 }
 
+impl Suite {
+    /// Takes new settings into the running stages, with the same fixed
+    /// values [`Suite::new`] gets from each stage's own defaults (a test
+    /// checks they agree). False when a stage was switched on or off.
+    fn set(&mut self, p: &Params) -> bool {
+        let on = |k: &str| p.get(k) >= 0.5;
+        if on("g_on") != self.gate.is_some()
+            || on("c_on") != self.comp.is_some()
+            || on("e_on") != self.exp.is_some()
+            || on("l_on") != self.lim.is_some()
+        {
+            return false;
+        }
+        if let Some(l) = &mut self.lim {
+            let v = LimiterValues {
+                ceiling_db: p.get("l_threshold"),
+                boost_db: 0.0,
+                lookahead_ms: 5.0,
+                release_ms: p.get("l_release"),
+                linked: true,
+                true_peak: false,
+            };
+            if !l.set(&v) {
+                return false;
+            }
+        }
+        if let Some(g) = &mut self.gate {
+            g.set(
+                p.get("g_threshold"),
+                p.get("g_attack"),
+                p.get("g_hold"),
+                p.get("g_release"),
+                -60.0,
+            );
+        }
+        if let Some(c) = &mut self.comp {
+            c.set(
+                [
+                    p.get("c_threshold"),
+                    p.get("c_ratio"),
+                    6.0,
+                    p.get("c_makeup"),
+                ],
+                [p.get("c_attack"), p.get("c_release")],
+                true,
+            );
+        }
+        if let Some(e) = &mut self.exp {
+            e.set(&ExpanderValues {
+                gate: false,
+                threshold_db: p.get("e_threshold"),
+                ratio: p.get("e_ratio"),
+                range_db: 40.0,
+                attack_ms: 3.0,
+                hold_ms: 60.0,
+                release_ms: 150.0,
+            });
+        }
+        true
+    }
+}
+
 impl Processor for Suite {
     fn process(&mut self, buf: &mut [f32]) {
         if let Some(g) = &mut self.gate {
@@ -137,6 +202,9 @@ impl Processor for Suite {
     }
     fn latency(&self) -> usize {
         self.lim.as_ref().map_or(0, |l| l.latency())
+    }
+    fn update(&mut self, p: &Params) -> bool {
+        self.set(p)
     }
     fn reset(&mut self) {
         if let Some(g) = &mut self.gate {
@@ -177,6 +245,40 @@ mod tests {
             p.process(chunk);
         }
         b
+    }
+
+    /// Taking the very settings it was built with changes nothing, so the
+    /// fixed values in `Suite::set` match the stages' own defaults.
+    #[test]
+    fn update_at_the_built_settings_sounds_the_same() {
+        let params = [
+            ("g_on", 1.0),
+            ("c_on", 1.0),
+            ("c_ratio", 3.0),
+            ("c_makeup", 2.0),
+            ("e_on", 1.0),
+            ("e_ratio", 2.0),
+            ("l_on", 1.0),
+            ("l_threshold", -3.0),
+        ];
+        let s = slot(super::SUITE, &params);
+        let info = super::info();
+        let p = super::Params::resolve(&info, &s.params);
+        let mut a = build(&s, 48_000).unwrap();
+        let mut b = build(&s, 48_000).unwrap();
+        assert!(b.update(&p));
+        let mut input = sine(0.5, 0.3);
+        input.extend(sine(0.002, 0.3));
+        let (mut x, mut y) = (input.clone(), input);
+        for (ca, cb) in x.chunks_mut(2 * 777).zip(y.chunks_mut(2 * 777)) {
+            a.process(ca);
+            b.process(cb);
+        }
+        assert!(x.iter().zip(&y).all(|(p, q)| p.to_bits() == q.to_bits()));
+        // Switching a stage on cannot happen in place.
+        let mut on = s.params.clone();
+        on.insert("g_on".into(), 0.0);
+        assert!(!b.update(&super::Params::resolve(&info, &on)));
     }
 
     #[test]
