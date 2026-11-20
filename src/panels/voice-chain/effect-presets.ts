@@ -11,7 +11,7 @@
 
 import type { EffectInfo } from "../../app/core";
 import type { EffectChainDoc, EffectSlotDoc } from "../../stores/session";
-import { clampParam, paramValue, setSlot } from "./chain";
+import { clampParam, masterSuite, paramValue, REVERB_PRESETS, setSlot } from "./chain";
 import { DYNAMICS_CURVE_PRESETS } from "./curve-presets";
 
 /** One saved preset: every setting of the effect, and its own data when it is small. */
@@ -148,7 +148,25 @@ const eq = (name: string, p: Record<string, number>): EffectPreset => ({
   },
 });
 
+/** The Room Reverb spaces from the Voice Chain presets, offered in the effect's own window too. */
+const ROOM_PRESETS: EffectPreset[] = REVERB_PRESETS.filter((p) => p.chain.slots[0]?.effect === "altaudio.room-reverb").map((p) => ({ name: p.name, params: { ...p.chain.slots[0]!.params } }));
+
+/** Mastering Suite presets. The loudness in a name is what it aims for with a typical mix going in: check it with Check Loudness. */
+const MASTERING_SUITE_PRESETS: EffectPreset[] = [
+  { name: "Flat, Ceiling Only", params: masterSuite({}) },
+  { name: "Podcast, -16 LUFS Target", params: masterSuite({ lc_on: 1, lc_freq: 70, ls_gain: 1, pk_freq: 300, pk_gain: -1.5, pk_q: 1, hs_freq: 9000, hs_gain: 2, ex_amount: 15, ex_mode: 0, push: 6, ceiling: -1, release: 80 }) },
+  { name: "Audiobook", params: masterSuite({ lc_on: 1, lc_freq: 80, pk_freq: 250, pk_gain: -1.5, pk_q: 1.2, hs_freq: 8000, hs_gain: 1, push: 4, ceiling: -3, release: 120 }) },
+  { name: "Music Loud", params: masterSuite({ lc_on: 1, lc_freq: 30, ls_freq: 80, ls_gain: 2, pk_freq: 2500, pk_gain: 1, pk_q: 0.8, hs_freq: 10_000, hs_gain: 2.5, ex_amount: 25, ex_mode: 2, width: 120, push: 10, ceiling: -1, release: 50 }) },
+  { name: "Streaming Music, -14 LUFS Target", params: masterSuite({ lc_on: 1, lc_freq: 30, ls_freq: 90, ls_gain: 1.5, hs_freq: 11_000, hs_gain: 1.5, ex_amount: 15, ex_mode: 2, width: 115, push: 8, ceiling: -1, release: 60 }) },
+  { name: "Gentle Polish", params: masterSuite({ ls_gain: 1, hs_freq: 10_000, hs_gain: 1.5, rv_amount: 5, ex_amount: 10, ex_mode: 0, width: 110, push: 2, ceiling: -1, release: 120 }) },
+  { name: "Warm Tape", params: masterSuite({ ls_freq: 120, ls_gain: 2, hs_freq: 12_000, hs_gain: -1.5, ex_amount: 40, ex_mode: 1, push: 4, ceiling: -1, release: 100 }) },
+  { name: "Broadcast Voice, Dense", params: masterSuite({ lc_on: 1, lc_freq: 90, ls_freq: 150, ls_gain: 1, pk_freq: 3000, pk_gain: 2, pk_q: 1.2, ex_amount: 20, ex_mode: 0, push: 9, ceiling: -2, release: 60 }) },
+  { name: "Drama Mix, Light Space", params: masterSuite({ lc_on: 1, lc_freq: 40, rv_amount: 30, width: 120, push: 3, ceiling: -1, release: 100 }) },
+];
+
 export const BUILTIN_EFFECT_PRESETS: Readonly<Record<string, readonly EffectPreset[]>> = {
+  "altaudio.mastering": MASTERING_SUITE_PRESETS,
+  "altaudio.room-reverb": ROOM_PRESETS,
   "altaudio.dynamics": [
     { name: "Voice, Gentle", params: { threshold: -18, ratio: 2, attack: 12, release: 180, knee: 8, makeup: 2 } },
     { name: "Voice, Firm", params: { threshold: -24, ratio: 4, attack: 8, release: 160, knee: 6, makeup: 5 } },
